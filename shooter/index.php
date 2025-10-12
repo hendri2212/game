@@ -4,6 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
     <title>Webcam HeaderBall</title>
     <style>
         :root {
@@ -161,6 +162,40 @@
             border-radius: 6px;
             font-weight: 600;
         }
+        /* Right-side Leaderboard */
+        .leaderboard {
+            position: absolute;
+            top: 70px;
+            right: 10px;
+            width: 280px;
+            max-height: 60vh;
+            overflow: auto;
+            background: rgba(2, 10, 20, .6);
+            border: 1px solid rgba(255, 255, 255, .08);
+            border-radius: 12px;
+            padding: 10px;
+            pointer-events: auto;
+        }
+        .leaderboard .lb-title {
+            font-weight: 700;
+            letter-spacing: .3px;
+            margin-bottom: 6px;
+            color: var(--accent);
+        }
+        .leaderboard .lb-list {
+            margin: 0; padding-left: 20px;
+        }
+        .leaderboard .lb-list li {
+            margin-bottom: 4px;
+        }
+        .leaderboard .name { color: var(--fg); }
+        .leaderboard .score { color: var(--muted); }
+        .leaderboard .lb-highlight {
+            background: rgba(93, 228, 199, .14);
+            border-left: 3px solid var(--accent);
+            padding-left: 6px;
+            border-radius: 6px;
+        }
     </style>
 </head>
 
@@ -172,6 +207,7 @@
             <div class="left">
                 <div class="chip">Skor: <strong id="score">0</strong></div>
                 <div class="chip">Akurasi: <strong id="acc">—</strong></div>
+                <div class="chip">Waktu: <strong id="timeleft">00:00</strong></div>
             </div>
             <div class="right">
                 <div class="chip" id="status">⏳ Kamera & model belum aktif</div>
@@ -184,6 +220,7 @@
         </div>
 
         <div class="controls">
+            <div class="row"><span>Durasi (menit)</span><input id="dur" type="number" min="1" max="60" value="1" /></div>
             <div class="row"><span>Mirror Video</span><input id="mirror" type="checkbox" checked /></div>
             <div class="row"><span>Deteksi tiap (ms)</span><input id="interval" type="range" min="40" max="200"
                     value="80" /></div>
@@ -192,12 +229,47 @@
             <div class="row"><span>Tampilkan bbox</span><input id="showbox" type="checkbox" /></div>
             <div class="row"><span>Target aktif</span><code id="tcount">0</code></div>
         </div>
+        <!-- Right-side Leaderboard Panel -->
+        <div class="leaderboard" id="leaderboard">
+            <div class="lb-title">Leaderboard</div>
+            <div class="lb-body">
+                <ol id="lbList" class="lb-list"></ol>
+            </div>
+        </div>
 
         <div class="help">Sundul bola dengan <strong>kepala</strong> (deteksi wajah). | Tips: berdiri 0.5–2 m dari
             kamera, cahaya cukup.</div>
 
         <video id="video" playsinline></video>
     </div>
+
+    <!-- Registration Modal -->
+    <div class="modal fade text-black" id="regModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form id="regForm" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Registrasi Pemain</h5>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Nama Lengkap</label>
+                        <input type="text" class="form-control" name="full_name" placeholder="Nama lengkap" required minlength="3">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Nomor WhatsApp</label>
+                        <input type="tel" class="form-control" name="phone" placeholder="08xxxxxxxxxx atau +62xxxxxxxxxx" required>
+                        <div class="form-text">Gunakan format Indonesia. Contoh: 08xxxxxxxxxx (atau +62xxxxxxxxxx)</div>
+                    </div>
+                    <div id="regErr" class="alert alert-danger d-none"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary w-100">Daftar &amp; Mulai</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <!-- Bootstrap JS (for modal) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 
     <script type="module">
         import { FilesetResolver, FaceLandmarker, PoseLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
@@ -220,6 +292,52 @@
             const hscaleIn = document.getElementById('hscale');
             const showboxIn = document.getElementById('showbox');
             const tcountEl = document.getElementById('tcount');
+            const timeEl  = document.getElementById('timeleft');
+            const durIn   = document.getElementById('dur');
+            const lbList = document.getElementById('lbList');
+            let lastFinishedPhone = null;
+            function setHighlight(phone) {
+                lastFinishedPhone = (phone || '').trim();
+                if (lastFinishedPhone) {
+                    // auto-clear highlight after 10s
+                    setTimeout(() => {
+                        if (lastFinishedPhone === phone) {
+                            lastFinishedPhone = null;
+                            loadLeaders();
+                        }
+                    }, 10000);
+                }
+            }
+
+            // ===== Registration (Bootstrap modal) =====
+            const regForm = document.getElementById('regForm');
+            const regErr  = document.getElementById('regErr');
+            const regModalEl = document.getElementById('regModal');
+            let regModal;
+
+            function showReg() {
+                regModal = regModal || new bootstrap.Modal(regModalEl, { backdrop: 'static', keyboard: false });
+                // Clear form inputs and error message every time the modal opens
+                if (regForm) {
+                    regForm.reset();
+                }
+                if (regErr) {
+                    regErr.textContent = '';
+                    regErr.classList.add('d-none');
+                }
+                regModal.show();
+            }
+
+            // Disable Start until registered
+            const storedId = localStorage.getItem('player_id');
+            const storedName = localStorage.getItem('player_name');
+            if (!storedId) {
+              startBtn.disabled = true;
+              showReg();
+            } else {
+              startBtn.disabled = false;
+              if (storedName) statusEl.textContent = '👤 ' + storedName;
+            }
 
             // ===== State =====
             const state = {
@@ -234,6 +352,10 @@
                 swings: 0,
                 targets: [],
                 particles: [],
+                playing: false,
+                gameDurationMs: 60_000,
+                timeLeftMs: 60_000,
+                scoreSaved: false,
                 showbox: false,
                 camW: 640, camH: 480 // will be updated by stream
             };
@@ -303,6 +425,7 @@
                     await loadModels();
                     statusEl.textContent = '✅ Siap! Gerakkan kepala untuk menyundul bola.';
                     state.running = true;
+                    startRound();
                     onResize();
                     requestAnimationFrame(loop);
                 } catch (e) {
@@ -311,7 +434,60 @@
                 }
             }
 
+            function stopCamera() {
+                try {
+                    const stream = video.srcObject;
+                    if (stream && typeof stream.getTracks === 'function') {
+                        stream.getTracks().forEach(t => t.stop());
+                    }
+                } catch (_) {}
+                video.srcObject = null;
+            }
+
             startBtn.addEventListener('click', startCamera);
+
+            // Handle registration submit
+            regForm.addEventListener('submit', async (e) => {
+              e.preventDefault();
+              regErr.classList.add('d-none');
+
+              const fd = new FormData(regForm);
+              let full_name = (fd.get('full_name') || '').toString().trim();
+              let phone = (fd.get('phone') || '').toString().trim();
+
+              if (full_name.length < 3) {
+                regErr.textContent = 'Nama minimal 3 karakter.'; regErr.classList.remove('d-none'); return;
+              }
+              // Normalize phone
+              phone = phone.replace(/[\s\-().]/g, '');
+              if (phone.startsWith('+62')) phone = '0' + phone.slice(3);
+              if (phone.startsWith('62')) phone = '0' + phone.slice(2);
+              if (!/^0\d{8,14}$/.test(phone)) {
+                regErr.textContent = 'Nomor WhatsApp tidak valid.'; regErr.classList.remove('d-none'); return;
+              }
+
+              try {
+                const res = await fetch('save.php', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                  body: new URLSearchParams({ full_name, phone }).toString()
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal menyimpan.');
+
+                localStorage.setItem('player_id', String(data.id));
+                localStorage.setItem('player_name', full_name);
+                localStorage.setItem('player_phone', phone);
+
+                statusEl.textContent = '👤 ' + full_name;
+                startBtn.disabled = false;
+                if (regModal) regModal.hide();
+                loadLeaders();
+              } catch (err) {
+                regErr.textContent = 'Gagal daftar: ' + err.message;
+                regErr.classList.remove('d-none');
+              }
+            });
 
             // ===== Resize =====
             function onResize() {
@@ -467,14 +643,137 @@
                 const a = state.swings ? Math.round((state.hits / state.swings) * 100) : 0;
                 accEl.textContent = state.swings ? (a + '%') : '—';
             }
+            // ===== Leaderboard =====
+            function esc(s) {
+                return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            }
+
+            async function loadLeaders() {
+                try {
+                    const res = await fetch('save.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ action: 'leaders' }).toString()
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal memuat leaderboard');
+                    renderLeaders(data.players || []);
+                } catch (_) {
+                    renderLeaders([]);
+                }
+            }
+
+            function renderLeaders(players) {
+                if (!lbList) return;
+                if (!players.length) {
+                    lbList.innerHTML = '<li class="text-muted">Belum ada data</li>';
+                    return;
+                }
+                const items = players.map(p => {
+                    const name = esc(p.full_name || 'Anonim');
+                    const score = Number(p.score || 0);
+                    const isMe = !!(lastFinishedPhone && p.phone && p.phone === lastFinishedPhone);
+                    const cls = isMe ? 'lb-highlight' : '';
+                    return `<li class="${cls}"><span class="name">${name}</span> — <span class="score">${score}</span></li>`;
+                }).join('');
+                lbList.innerHTML = items;
+            }
+
+            function fmtTime(ms) {
+                const total = Math.max(0, Math.ceil(ms / 1000));
+                const m = Math.floor(total / 60);
+                const s = total % 60;
+                return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+            }
+
+            function startRound() {
+                state.score = 0; scoreEl.textContent = state.score;
+                state.hits = 0; state.swings = 0; updateAcc();
+                state.targets = []; state.particles = [];
+                state.scoreSaved = false;
+
+                const mins = Math.max(1, parseInt(durIn.value || '1', 10));
+                state.gameDurationMs = mins * 60_000;
+                state.timeLeftMs = state.gameDurationMs;
+
+                state.playing = true;
+                timeEl.textContent = fmtTime(state.timeLeftMs);
+                statusEl.textContent = '🎮 Game dimulai · durasi ' + mins + ' menit';
+            }
+
+            async function sendScore() {
+                if (state.scoreSaved) return;
+                const phone = (localStorage.getItem('player_phone') || '').trim();
+                if (!phone) { state.scoreSaved = true; return; } // fallback: tidak kirim kalau belum register (harusnya sudah)
+
+                try {
+                    const res = await fetch('save.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ action: 'score', phone, score: String(state.score|0) }).toString()
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok) {
+                    console.warn('Update score gagal:', data.error || res.statusText);
+                    }
+                } catch (e) {
+                    console.warn('Update score gagal:', e);
+                } finally {
+                    state.scoreSaved = true;
+                }
+            }
+
+            async function endRound() {
+                if (!state.playing) return;
+                state.playing = false;
+                statusEl.textContent = '⏱️ Waktu habis! Menyimpan skor & logout...';
+                const phoneJustFinished = (localStorage.getItem('player_phone') || '').trim();
+                setHighlight(phoneJustFinished);
+
+                // 1) Simpan skor
+                await sendScore();
+                await loadLeaders();
+
+                // 2) Bersihkan objek game
+                state.targets = [];
+                state.particles = [];
+
+                // 3) Hentikan kamera & loop
+                stopCamera();
+                state.running = false;
+
+                // 4) Logout pemain (hapus identitas lokal)
+                localStorage.removeItem('player_id');
+                localStorage.removeItem('player_name');
+                localStorage.removeItem('player_phone');
+
+                // 5) Reset HUD & lock Start
+                timeEl.textContent = '00:00';
+                scoreEl.textContent = '0';
+                accEl.textContent = '—';
+                startBtn.disabled = true;
+
+                // 6) Tampilkan modal registrasi untuk pemain berikutnya
+                statusEl.textContent = '👋 Pemain keluar. Silakan daftar pemain berikutnya.';
+                showReg();
+            }
 
             // ===== Loop =====
             let last = performance.now();
             function loop(now) {
                 if (!state.running) return;
                 const dt = Math.min(0.05, (now - last) / 1000); last = now;
+                // Timer countdown
+                if (state.playing) {
+                    state.timeLeftMs -= dt * 1000;
+                    if (state.timeLeftMs <= 0) {
+                        state.timeLeftMs = 0;
+                        endRound();
+                    }
+                }
+                timeEl.textContent = fmtTime(state.timeLeftMs);
 
-                ensureTargets(4);
+                ensureTargets(state.playing ? 4 : 0);
                 maybeInfer(now);
 
                 // Physics (TTL countdown + head collision)
@@ -564,6 +863,9 @@
             // ===== Boot =====
             if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
                 statusEl.textContent = 'ℹ️ Jalankan di https:// atau http://localhost untuk akses kamera.';
+                // Load leaderboard initially and refresh periodically
+                loadLeaders();
+                setInterval(loadLeaders, 5000);
             }
         })();
     </script>
