@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>Ikan Todak - Arcade Laut</title>
+    <style>
+        :root {
+            --bg: #0b1220;
+            --panel: #0f172a;
+            --text: #e5e7eb;
+            --accent: #22d3ee;
+            --danger: #fb7185;
+            --good: #34d399;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            background: radial-gradient(1000px 700px at 50% -120px, #0e7490 0%, #075985 40%, #082f49 100%);
+            color: var(--text);
+            font: 500 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            display: block;
+            min-height: 100svh;
+        }
+
+        .wrap {
+            width: 100vw;
+            max-width: none;
+            height: 100svh;
+            padding: 0;
+        }
+
+        .card {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0;
+            box-shadow: none;
+            overflow: hidden;
+            width: 100vw;
+            height: 100svh;
+            position: relative;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: rgba(2, 6, 23, 0.6);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(6px);
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 20;
+        }
+
+        header .title {
+            font-weight: 700;
+            letter-spacing: .3px;
+        }
+
+        header .meta {
+            opacity: .8;
+            font-size: 12px;
+        }
+
+        #stage {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: #02131b;
+            touch-action: none;
+        }
+
+        .hud {
+            position: absolute;
+            inset: 0;
+        }
+
+        .overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            background: linear-gradient(180deg, rgba(2, 6, 23, 0.55), rgba(2, 6, 23, 0.8));
+        }
+
+        .panel {
+            text-align: center;
+            padding: 20px;
+            width: min(92%, 360px);
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        }
+
+        .panel h1 {
+            margin: 0 0 8px;
+            font-size: 22px;
+        }
+
+        .panel p {
+            margin: 6px 0;
+            opacity: .85;
+        }
+
+        .btn {
+            margin-top: 14px;
+            appearance: none;
+            border: 0;
+            border-radius: 999px;
+            padding: 10px 16px;
+            font-weight: 700;
+            letter-spacing: .3px;
+            background: linear-gradient(180deg, #22d3ee, #0891b2);
+            color: #001018;
+            cursor: pointer;
+            box-shadow: 0 8px 18px rgba(34, 211, 238, 0.25);
+        }
+
+
+        .kbd {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            padding: 2px 6px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .head-left {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+        }
+
+        .hud-mini {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-ghost {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-weight: 700;
+            letter-spacing: .2px;
+            cursor: pointer;
+        }
+
+        .btn-ghost[disabled] {
+            opacity: .6;
+            cursor: default;
+        }
+    </style>
+    <script>
+        // Satu sumber kebenaran untuk default nyawa (ubah nilainya di sini)
+        window.DEFAULT_LIVES = 1;
+    </script>
+</head>
+
+<body>
+    <div class="wrap">
+        <div class="card">
+            <header>
+                <div class="head-left">
+                    <div class="title">Ikan Todak</div>
+                    <div class="meta">Keyboard</div>
+                </div>
+                <div class="hud-mini">
+                    <div class="badge">Skor: <span id="score">0</span></div>
+                    <div class="badge">Nyawa: <span id="lives">
+                            <script>document.write(window.DEFAULT_LIVES ?? 3)</script>
+                        </span></div>
+                    <div class="badge">Gelombang: <span id="wave">1</span></div>
+                    <button id="btnReloadSprites" class="btn-ghost" title="Muat ulang daftar musuh">Reload
+                        Enemies</button>
+                </div>
+            </header>
+            <div class="hud">
+                <canvas id="stage" aria-label="canvas game"></canvas>
+                <!-- Overlays -->
+                <div id="startOverlay" class="overlay">
+                    <div class="panel">
+                        <h1>🌊 Ikan Todak</h1>
+                        <p>Gerak <span class="kbd">←</span>/<span class="kbd">→</span> atau <span
+                                class="kbd">A</span>/<span class="kbd">D</span>. Tembakan otomatis.</p>
+                        <button id="btnStart" class="btn">Mulai</button>
+                    </div>
+                </div>
+                <div id="gameOverOverlay" class="overlay" style="display:none;">
+                    <div class="panel">
+                        <h1>💥 Game Over</h1>
+                        <p>Skor akhir: <b id="finalScore">0</b></p>
+                        <button id="btnRestart" class="btn">Main Lagi</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== Utility & Setup =====
+        const canvas = document.getElementById('stage');
+        const ctx = canvas.getContext('2d');
+        const uiScore = document.getElementById('score');
+        const uiLives = document.getElementById('lives');
+        const uiWave = document.getElementById('wave');
+        // === Konfigurasi (sumber dari window.DEFAULT_LIVES yang didefinisikan di <head>) ===
+        const DEFAULT_LIVES = window.DEFAULT_LIVES ?? 3;
+        // Sinkronkan tampilan awal UI dengan default
+        uiLives.textContent = DEFAULT_LIVES;
+
+        // === Display options ===
+        // Tampilkan/hidden nama file di atas enemies
+        let SHOW_ENEMY_LABELS = false; // set ke false untuk menyembunyikan label
+        // === Size tuning ===
+        const PLAYER_SCALE = 1.25;      // perbesar player ~25%
+        const ENEMY_SIZE_MULT = 1.25;   // perbesar musuh ~25%
+
+        // === Enemy sprite discovery & preloader ===
+        const enemyImages = [];
+        let enemySpritesLoaded = false;
+        let enemyProbeCursor = 0; // 0..9999 rolling pointer
+
+        function preloadEnemySprites(paths, onDone) {
+            let remaining = paths.length;
+            if (remaining === 0) { enemySpritesLoaded = true; if (onDone) onDone(); return; }
+            for (const p of paths) {
+                const img = new Image();
+                img.onload = img.onerror = () => { remaining--; if (remaining === 0) { enemySpritesLoaded = true; if (onDone) onDone(); } };
+                img.src = p;
+                enemyImages.push(img);
+            }
+        }
+
+        async function discoverEnemySprites() {
+            const found = [];
+            // 1) Try JSON manifest: enemies/index.json => ["foo.png", "bar.png"]
+            try {
+                const res = await fetch('enemies/index.json', { cache: 'no-store' });
+                if (res.ok) {
+                    const arr = await res.json();
+                    if (Array.isArray(arr)) {
+                        for (const name of arr) {
+                            if (typeof name === 'string' && /\.png$/i.test(name)) {
+                                found.push(name.startsWith('enemies/') ? name : ('enemies/' + name.replace(/^\/?/, '')));
+                            }
+                        }
+                        if (found.length) return found;
+                    }
+                }
+            } catch (_) { }
+
+            // 2) Try directory listing (if the server exposes it)
+            try {
+                const res = await fetch('enemies/', { cache: 'no-store' });
+                if (res.ok) {
+                    const html = await res.text();
+                    const regex = /href=\"([^\"]+\.png)\"/gi;
+                    const seen = new Set();
+                    let m;
+                    while ((m = regex.exec(html)) !== null) {
+                        let href = m[1];
+                        if (!/\.png$/i.test(href)) continue;
+                        if (!/^https?:/i.test(href)) {
+                            href = 'enemies/' + href.replace(/^\/?/, '');
+                        }
+                        if (!seen.has(href)) { seen.add(href); found.push(href); }
+                    }
+                    if (found.length) return found;
+                }
+            } catch (_) { }
+
+            // 3) Numeric fallback: probe 0..9999 (rolling). For 0..99 also try zero-padded (00..99).
+            const MAX_BATCH = 300; // limit probes per refresh
+            const candidates = [];
+            while (candidates.length < MAX_BATCH) {
+                const n = enemyProbeCursor % 10000; // 0..9999
+                candidates.push(`enemies/${n}.png`);
+                if (n < 100) { candidates.push(`enemies/${String(n).padStart(2, '0')}.png`); }
+                enemyProbeCursor = (enemyProbeCursor + 1) % 10000;
+            }
+            const ok = [];
+            await Promise.all(candidates.map(p => new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => { ok.push(p); resolve(); };
+                img.onerror = () => resolve();
+                img.src = p + `?t=${Date.now()}`; // cache-bust to defeat stale 404s
+            })));
+            return ok;
+        }
+
+        function pickEnemySprite() {
+            if (enemyImages.length === 0) return null;
+            return enemyImages[Math.floor(Math.random() * enemyImages.length)];
+        }
+
+        // Live refresh for enemy sprites (no reload)
+        let enemySpritePoller = null;
+        function toAbs(u) { try { return new URL(u, location.href).href; } catch (_) { return u; } }
+
+        async function refreshEnemySprites() {
+            try {
+                const paths = await discoverEnemySprites();
+                const existing = new Set(enemyImages.map(img => toAbs(img.src)));
+                const candidates = paths.map(toAbs);
+                const news = candidates.filter(p => !existing.has(p));
+                if (news.length) {
+                    await new Promise((resolve) => preloadEnemySprites(news, resolve));
+                    console.log('New enemy sprites added:', news.length);
+                    return news.length;
+                }
+                return 0;
+            } catch (e) {
+                console.warn('Enemy sprite refresh failed:', e);
+                return 0;
+            }
+        }
+
+        // start discovery + preload early + enable live refresh
+        void (async () => {
+            try {
+                const paths = await discoverEnemySprites();
+                preloadEnemySprites(paths, () => { console.log('Enemy sprites ready:', enemyImages.length); });
+                // after initial load, refresh periodically to pick up new files without reload
+                setTimeout(refreshEnemySprites, 5000);
+                enemySpritePoller = setInterval(refreshEnemySprites, 15000);
+            } catch (e) {
+                console.warn('Enemy sprite discovery failed:', e);
+            }
+        })();
+
+        const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1)); // cap DPR for perf
+        let W = window.innerWidth; let H = window.innerHeight; // logical size based on viewport
+        // scale canvas for crisp rendering
+        function setupCanvas() {
+            canvas.width = Math.floor(W * DPR);
+            canvas.height = Math.floor(H * DPR);
+            canvas.style.width = W + 'px';
+            canvas.style.height = H + 'px';
+            ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        }
+        function handleResize() {
+            W = window.innerWidth;
+            H = window.innerHeight;
+            setupCanvas();
+            // redraw background to avoid blank flashes on resize
+            drawBackground(0);
+        }
+
+        // ===== Game State =====
+        const Keys = new Set();
+        let running = false; let gameOver = false;
+        const player = { x: W / 2, y: H - 64, w: Math.round(22 * PLAYER_SCALE), h: Math.round(22 * PLAYER_SCALE), speed: 180, cooldown: 0 };
+        /** Bullets from player */
+        const bullets = []; // {x,y,vy}
+        /** Enemies */
+        const enemies = []; // {x,y,w,h,vy,hp}
+        /** Particles */
+        const sparks = []; // {x,y,vx,vy,life}
+
+        let score = 0; let lives = DEFAULT_LIVES; let wave = 1; let spawnTimer = 0; let spawnRate = 1.0; // seconds
+
+        // ===== Input Handling =====
+        const down = (e) => { const k = e.key?.toLowerCase(); if (k) { if (["arrowleft", "a", "arrowright", "d"].includes(k)) e.preventDefault(); Keys.add(k); } };
+        const up = (e) => { const k = e.key?.toLowerCase(); if (k) Keys.delete(k); };
+        window.addEventListener('keydown', down, { passive: false });
+        window.addEventListener('keyup', up);
+
+
+        // ===== Audio (tiny bleep generator) =====
+        let AC; // lazy init on first user gesture
+        function bleep(freq = 440, time = 0.06, type = 'square') {
+            try {
+                if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+                const o = AC.createOscillator();
+                const g = AC.createGain();
+                o.type = type; o.frequency.value = freq; g.gain.value = 0.05;
+                o.connect(g).connect(AC.destination);
+                o.start(); g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + time); o.stop(AC.currentTime + time);
+            } catch (e) { /* ignore on unsupported devices */ }
+        }
+
+        // ===== Helpers =====
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        function rectsOverlap(a, b) { return Math.abs(a.x - b.x) * 2 < (a.w + b.w) && Math.abs(a.y - b.y) * 2 < (a.h + b.h); }
+
+        function fileLabelFromURL(u) {
+            try {
+                const url = new URL(u, location.href);
+                const fname = url.pathname.split('/').pop() || '';
+                return fname.replace(/\.png$/i, '');
+            } catch (_) {
+                const s = String(u).split('?')[0].split('#')[0];
+                const base = s.substring(s.lastIndexOf('/') + 1);
+                return base.replace(/\.png$/i, '');
+            }
+        }
+
+        function spawnEnemy() {
+            const w = (22 + Math.random() * 16) * ENEMY_SIZE_MULT; const h = w;
+            const x = 20 + Math.random() * (W - 40); const y = -h;
+            const speed = 35 + Math.random() * (40 + wave * 8);
+            const hp = 1 + Math.floor(Math.random() * Math.min(1 + Math.floor(wave / 3), 3));
+            const sprite = pickEnemySprite();
+            const label = sprite ? fileLabelFromURL(sprite.src) : '';
+            enemies.push({ x, y, w, h, vy: speed, hp, sprite, label });
+        }
+
+
+        function explode(x, y, count = 10) {
+            for (let i = 0; i < count; i++) {
+                const a = Math.random() * Math.PI * 2; const s = 30 + Math.random() * 120;
+                sparks.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.45 + Math.random() * 0.35 });
+            }
+            bleep(180, 0.08, 'sawtooth');
+        }
+
+        // ===== Game Update & Render =====
+        function update(dt) {
+            // player move
+            let dir = 0; if (Keys.has('arrowleft') || Keys.has('a')) dir -= 1; if (Keys.has('arrowright') || Keys.has('d')) dir += 1;
+            player.x += dir * player.speed * dt;
+            player.x = clamp(player.x, player.w / 2 + 6, W - player.w / 2 - 6);
+
+            player.cooldown = Math.max(0, player.cooldown - dt);
+            if (player.cooldown === 0) {
+                bullets.push({ x: player.x, y: player.y - player.h / 2, vy: -360 });
+                player.cooldown = 0.18; // seconds
+                bleep(680, 0.05, 'triangle');
+            }
+
+            // bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i]; b.y += b.vy * dt; if (b.y < -20) bullets.splice(i, 1);
+            }
+
+            // spawn enemies
+            spawnTimer -= dt; if (spawnTimer <= 0) { spawnEnemy(); spawnTimer = Math.max(0.2, spawnRate - wave * 0.03); }
+
+            // enemies move & check bottom
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i]; e.y += e.vy * dt;
+                if (e.y - e.h / 2 > H + 20) { // missed enemy
+                    enemies.splice(i, 1); loseLife(); continue;
+                }
+            }
+
+            // collisions bullets ↔ enemies
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const b = bullets[j];
+                    if (rectsOverlap({ x: e.x, y: e.y, w: e.w, h: e.h }, { x: b.x, y: b.y, w: 6, h: 10 })) {
+                        bullets.splice(j, 1); e.hp -= 1; score += 5;
+                        if (e.hp <= 0) { explode(e.x, e.y, 12); enemies.splice(i, 1); score += 10; maybeAdvanceWave(); }
+                        break;
+                    }
+                }
+            }
+
+            // enemy ↔ player
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                if (rectsOverlap({ x: e.x, y: e.y, w: e.w, h: e.h }, player)) {
+                    enemies.splice(i, 1); explode(player.x, player.y, 16); loseLife(); break;
+                }
+            }
+
+            // particles
+            for (let i = sparks.length - 1; i >= 0; i--) {
+                const p = sparks[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= (1 - 3 * dt); p.vy = p.vy + 180 * dt; p.life -= dt; if (p.life <= 0) sparks.splice(i, 1);
+            }
+
+            // UI
+            uiScore.textContent = score;
+            uiLives.textContent = lives;
+            uiWave.textContent = wave;
+        }
+
+        function loseLife() {
+            lives -= 1; if (lives <= 0) { endGame(); }
+        }
+
+        function maybeAdvanceWave() {
+            // simple progression: every 10 kills increase wave (approx by score)
+            const expected = 1 + Math.floor(score / 120);
+            if (expected > wave) { wave = expected; bleep(520, 0.12, 'square'); }
+        }
+
+        // Ocean background with bubbles
+        const bubbles = Array.from({ length: 60 }, () => ({
+            x: Math.random() * W,
+            y: Math.random() * H,
+            r: 1 + Math.random() * 3,
+            z: 0.3 + Math.random() * 1.2
+        }));
+        function drawBackground(dt) {
+            // deep sea gradient
+            const g = ctx.createLinearGradient(0, 0, 0, H);
+            g.addColorStop(0, '#022c43');
+            g.addColorStop(1, '#0b486b');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, W, H);
+
+            // subtle light rays
+            ctx.globalAlpha = 0.05;
+            for (let i = 0; i < 3; i++) {
+                const x = (i * W / 3) + Math.sin((performance.now() / 3000) + i) * 20;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x + 80, 0);
+                ctx.lineTo(x + 20, H);
+                ctx.lineTo(x - 60, H);
+                ctx.closePath();
+                ctx.fillStyle = '#e0f2fe';
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // bubbles
+            for (const b of bubbles) {
+                b.y -= (15 * b.z + wave * 2) * dt;
+                if (b.y < -10) {
+                    b.y = H + 10;
+                    b.x = Math.random() * W;
+                    b.r = 1 + Math.random() * 3;
+                }
+                ctx.globalAlpha = 0.25 + 0.4 * b.z;
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+                ctx.fillStyle = '#d1fae5';
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        handleResize();
+        addEventListener('resize', handleResize);
+
+        function render() {
+            // player (ikan todak)
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.scale(PLAYER_SCALE, PLAYER_SCALE);
+            ctx.fillStyle = '#facc15';
+            // body
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 14, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // bill (long nose)
+            ctx.beginPath();
+            ctx.moveTo(12, -2);
+            ctx.lineTo(28, 0);
+            ctx.lineTo(12, 2);
+            ctx.closePath();
+            ctx.fill();
+            // dorsal fin
+            ctx.beginPath();
+            ctx.moveTo(-2, -8);
+            ctx.lineTo(6, -14);
+            ctx.lineTo(4, -7);
+            ctx.closePath();
+            ctx.fill();
+            // tail
+            ctx.beginPath();
+            ctx.moveTo(-12, 0);
+            ctx.lineTo(-22, -7);
+            ctx.lineTo(-22, 7);
+            ctx.closePath();
+            ctx.fill();
+            // pectoral fin
+            ctx.beginPath();
+            ctx.moveTo(0, 6);
+            ctx.lineTo(6, 12);
+            ctx.lineTo(2, 6);
+            ctx.closePath();
+            ctx.fill();
+            // eye
+            ctx.fillStyle = '#e2e8f0';
+            ctx.beginPath();
+            ctx.arc(6, -2, 1.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // bullets (gelembung)
+            for (const b of bullets) {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = '#a7f3d0';
+                ctx.fill();
+            }
+
+            // enemies (sprite images with fallback)
+            for (const e of enemies) {
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                if (e.sprite && e.sprite.complete && e.sprite.naturalWidth && e.sprite.naturalHeight) {
+                    // draw sprite centered, keeping aspect ratio within e.w x e.h
+                    const nw = e.sprite.naturalWidth, nh = e.sprite.naturalHeight;
+                    const scale = Math.min(e.w / nw, e.h / nh);
+                    const dw = Math.max(1, nw * scale), dh = Math.max(1, nh * scale);
+                    ctx.drawImage(e.sprite, -dw / 2, -dh / 2, dw, dh);
+                } else {
+                    // fallback: original mine drawing
+                    const r = e.w / 2;
+                    ctx.fillStyle = e.hp > 1 ? '#f59e0b' : '#fb7185';
+                    ctx.beginPath();
+                    for (let k = 0; k < 8; k++) {
+                        const a = k * Math.PI / 4;
+                        const x1 = Math.cos(a) * (r);
+                        const y1 = Math.sin(a) * (r);
+                        const x2 = Math.cos(a) * (r + 6);
+                        const y2 = Math.sin(a) * (r + 6);
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                    }
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = e.hp > 1 ? '#f59e0b' : '#fb7185';
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(0, 0, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                // label above enemy using filename (without .png)
+                if (SHOW_ENEMY_LABELS && e.label) {
+                    ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    const ty = -e.h / 2 - 6;
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+                    ctx.strokeText(e.label, 0, ty);
+                    ctx.fillStyle = '#e5e7eb';
+                    ctx.fillText(e.label, 0, ty);
+                }
+                ctx.restore();
+            }
+
+            // sparks (pecahan gelembung)
+            for (const p of sparks) {
+                ctx.globalAlpha = Math.max(0, p.life * 1.6);
+                ctx.fillStyle = '#a7f3d0';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 1.6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // ===== Main Loop (fixed timestep) =====
+        let last = 0, acc = 0; const STEP = 1 / 60; const MAX_DT = 1 / 15;
+        function frame(t) {
+            if (!running) return; // paused / overlay open
+            requestAnimationFrame(frame);
+            if (!last) last = t; let dt = (t - last) / 1000; last = t; dt = Math.min(dt, MAX_DT); acc += dt;
+
+            // background uses real dt for smoothness
+            drawBackground(dt);
+            // update with fixed steps
+            while (acc >= STEP) { update(STEP); acc -= STEP; }
+            render();
+        }
+
+        function resetGame() {
+            score = 0; lives = DEFAULT_LIVES; wave = 1; spawnTimer = 0; spawnRate = 1.0;
+            bullets.length = 0; enemies.length = 0; sparks.length = 0; player.x = W / 2; player.y = H - 64; player.cooldown = 0;
+            last = 0; acc = 0; gameOver = false;
+            document.getElementById('finalScore').textContent = '0';
+            document.getElementById('gameOverOverlay').style.display = 'none';
+        }
+
+        function startGame() {
+            document.getElementById('startOverlay').style.display = 'none';
+            running = true; requestAnimationFrame(frame);
+            bleep(420, 0.12, 'square');
+        }
+
+        function endGame() {
+            running = false; gameOver = true; document.getElementById('finalScore').textContent = String(score);
+            document.getElementById('gameOverOverlay').style.display = 'flex';
+        }
+
+        // Buttons / overlays
+        document.getElementById('btnStart').addEventListener('click', startGame);
+        document.getElementById('btnRestart').addEventListener('click', () => { resetGame(); startGame(); });
+
+        const btnReloadSprites = document.getElementById('btnReloadSprites');
+        if (btnReloadSprites) {
+            btnReloadSprites.addEventListener('click', async () => {
+                if (btnReloadSprites.disabled) return;
+                const before = enemyImages.length;
+                btnReloadSprites.disabled = true;
+                const label0 = btnReloadSprites.textContent;
+                btnReloadSprites.textContent = 'Reloading...';
+                const added = await refreshEnemySprites();
+                const delta = (typeof added === 'number') ? added : (enemyImages.length - before);
+                btnReloadSprites.textContent = delta > 0 ? `Reloaded (+${delta})` : 'Reloaded (0)';
+                setTimeout(() => { btnReloadSprites.disabled = false; btnReloadSprites.textContent = label0; }, 1200);
+            });
+        }
+
+        // Keyboard start/restart shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (e.key === ' ' && !running && !gameOver) { e.preventDefault(); startGame(); }
+            else if (e.key === 'r' && gameOver) { resetGame(); startGame(); }
+        });
+
+        // Pre-draw background so canvas isn't blank under overlay
+        drawBackground(0.016);
+    </script>
+</body>
+
+</html>

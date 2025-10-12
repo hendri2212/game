@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Super Bear Quest</title>
+  <style>
+    :root{
+      --ink:#0b132b;--sea:#1c2541;--sky:#3a506b;--mint:#5bc0be;--snow:#f0f9ff;--gold:#ffd166;--danger:#ef476f;--grass:#2a9d8f;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0; background:linear-gradient(180deg,var(--sky),var(--sea) 60%,#0a1624); color:var(--snow); font:500 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial; display:grid; place-items:center}
+    .wrap{width:100%; max-width:960px; padding:16px}
+    .card{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    header{display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:rgba(0,0,0,.25); border-bottom:1px solid rgba(255,255,255,.1); backdrop-filter: blur(6px)}
+    header .title{font-weight:800; letter-spacing:.3px}
+    header .meta{opacity:.85; font-size:12px}
+    #stage{display:block; width:100%; height:auto; background:#0a1624; touch-action:none}
+    .hud{position:relative}
+    .scorebar{position:absolute; top:8px; left:8px; right:8px; display:flex; gap:6px; justify-content:space-between; font-weight:800}
+    .badge{padding:4px 8px; border-radius:999px; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.15)}
+    .overlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg, rgba(3,8,23,.6), rgba(3,8,23,.85));}
+    .panel{width:min(92%, 520px); text-align:center; background:rgba(17,24,39,.85); border:1px solid rgba(255,255,255,.1); padding:20px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .panel h1{margin:0 0 6px; font-size:22px}
+    .panel p{margin:6px 0; opacity:.9}
+    .btn{margin-top:12px; border:0; border-radius:999px; padding:10px 16px; font-weight:800; background:linear-gradient(180deg,var(--mint),#1fa3a0); color:#022; cursor:pointer}
+    .controls{position:absolute; inset:0; pointer-events:none}
+    .control-btn{position:absolute; bottom:14px; width:76px; height:76px; border-radius:50%; background:rgba(17,24,39,.65); border:1px solid rgba(255,255,255,.15); display:grid; place-items:center; font-weight:900; font-size:16px; color:#b5f3ef; pointer-events:auto; user-select:none}
+    #btnLeft{left:14px}
+    #btnRight{left:96px}
+    #btnJump{right:14px; width:88px; height:88px; color:#ffe29a}
+    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; padding:2px 6px; border:1px solid rgba(255,255,255,.3); border-radius:6px; background:rgba(255,255,255,.1)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div class="title">🐻 Super Bear Quest</div>
+        <div class="meta">Platformer 2D | Keyboard & Sentuh</div>
+      </header>
+      <div class="hud" style="position:relative;">
+        <canvas id="stage" width="960" height="540" aria-label="canvas game"></canvas>
+        <div class="scorebar">
+          <div class="badge">Madu: <span id="uiHoney">0</span>/<span id="uiHoneyMax">0</span></div>
+          <div class="badge">Nyawa: <span id="uiLives">3</span></div>
+          <div class="badge">Level: <span id="uiLevel">1</span></div>
+        </div>
+        <div id="startOverlay" class="overlay">
+          <div class="panel">
+            <h1>🐻 Super Bear Quest</h1>
+            <p>Jelajah hutan & gua, kumpulkan <b>madu</b>, hindari <b>musuh</b>, capai <b>bendera</b>.</p>
+            <p>Gerak: <span class="kbd">←</span>/<span class="kbd">→</span> atau <span class="kbd">A</span>/<span class="kbd">D</span>. Lompat: <span class="kbd">W</span>/<span class="kbd">↑</span>/<span class="kbd">Space</span>.</p>
+            <p>Mobile: tombol on‑screen kanan-kiri & lompat.</p>
+            <button id="btnStart" class="btn">Mulai</button>
+          </div>
+        </div>
+        <div id="gameOverOverlay" class="overlay" style="display:none;">
+          <div class="panel">
+            <h1>💥 Kamu Kalah</h1>
+            <p>Skor madu: <b id="finalHoney">0</b></p>
+            <button id="btnRestart" class="btn">Main Lagi</button>
+          </div>
+        </div>
+        <div id="levelClearOverlay" class="overlay" style="display:none;">
+          <div class="panel">
+            <h1>🏁 Level Selesai!</h1>
+            <p>Kumpul madu: <b id="clearHoney">0</b>/<b id="clearHoneyMax">0</b></p>
+            <button id="btnNext" class="btn">Level Berikutnya</button>
+          </div>
+        </div>
+        <div class="controls" aria-hidden="true">
+          <div id="btnLeft" class="control-btn">⟵</div>
+          <div id="btnRight" class="control-btn">⟶</div>
+          <div id="btnJump" class="control-btn">⟰</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ===== Canvas & DPR =====
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+  function setupCanvas(){ canvas.width=960*DPR; canvas.height=540*DPR; canvas.style.width='960px'; canvas.style.height='540px'; ctx.setTransform(DPR,0,0,DPR,0,0);} setupCanvas();
+  addEventListener('resize', setupCanvas);
+
+  // ===== UI refs =====
+  const uiHoney = document.getElementById('uiHoney');
+  const uiHoneyMax = document.getElementById('uiHoneyMax');
+  const uiLives = document.getElementById('uiLives');
+  const uiLevel = document.getElementById('uiLevel');
+
+  // ===== World constants =====
+  const TS = 24; // tile size (px)
+  const GRAV = 1600; // px/s^2
+  const MAX_DX = 260; const ACCEL = 1600; const FRICTION = 1800; // movement
+  const JUMP_V = -520; const JUMP_BUFFER_TIME=0.12; const COYOTE_TIME=0.09;
+
+  // Tile types
+  const T = { EMPTY:0, SOLID:1, PLATFORM:2, HONEY:3, SPIKE:4, SPRING:5, SIGN:6, FLAG:7, ENEMY:8, CHECK:9 };
+
+  // Colors
+  const C = { bg:'#0a1624', ground:'#274060', platform:'#2a9d8f', honey:'#ffd166', spike:'#ef476f', spring:'#b8f2e6', flag:'#f7fff7', enemy:'#ff9f1c'};
+
+  // ===== Input =====
+  const Keys = new Set();
+  addEventListener('keydown',e=>{const k=e.key.toLowerCase(); if(['arrowleft','arrowright','a','d','w','arrowup',' ','r'].includes(k)) e.preventDefault(); Keys.add(k)});
+  addEventListener('keyup',e=>{Keys.delete(e.key.toLowerCase())});
+  function bindHold(el, key){ const add=()=>Keys.add(key), del=()=>Keys.delete(key); el.addEventListener('pointerdown',e=>{e.preventDefault(); el.setPointerCapture(e.pointerId); add();}); ['pointerup','pointercancel','pointerout'].forEach(ev=>el.addEventListener(ev,del)); }
+  bindHold(document.getElementById('btnLeft'),'arrowleft');
+  bindHold(document.getElementById('btnRight'),'arrowright');
+  bindHold(document.getElementById('btnJump'),' ');
+
+  // ===== Tiny audio =====
+  let AC; function beep(freq=660, dur=0.06, type='square'){ try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); const o=AC.createOscillator(), g=AC.createGain(); o.type=type; o.frequency.value=freq; g.gain.value=0.05; o.connect(g).connect(AC.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime+dur); o.stop(AC.currentTime+dur);}catch(_){} }
+
+  // ===== Level data =====
+  // Legend: 0 empty, 1 solid, 2 platform, 3 honey, 4 spike, 5 spring, 6 sign, 7 flag, 8 enemy, 9 checkpoint
+  const LEVELS = [
+    {
+      name:'Hutan Madu',
+      w: 80, h: 20,
+      tiles: (()=>{ // 80 x 20 grid
+        const g = Array.from({length:20},()=>Array(80).fill(0));
+        // ground base
+        for(let x=0;x<80;x++){ const h=14+Math.floor(Math.sin(x*0.5)*0.7); for(let y=h;y<20;y++) g[y][x]=1; }
+        // platforms
+        for(let x=6;x<18;x++) g[10][x]=2;
+        for(let x=22;x<30;x++) g[9][x]=2;
+        for(let x=33;x<42;x++) g[7][x]=2;
+        for(let x=47;x<58;x++) g[11][x]=2;
+        // spikes
+        g[13][12]=4; g[13][13]=4; g[13][14]=4;
+        g[13][26]=4; g[13][27]=4; g[13][28]=4;
+        // springs
+        g[13][18]=5; g[12][34]=5;
+        // honey
+        g[9][8]=3; g[8][25]=3; g[6][36]=3; g[10][50]=3; g[9][55]=3; g[8][57]=3; g[13][65]=3; g[9][70]=3;
+        // enemies
+        g[13][20]=8; g[13][31]=8; g[13][52]=8; g[13][62]=8;
+        // sign & checkpoint
+        g[13][5]=6; g[13][40]=9;
+        // flag goal
+        g[12][76]=7; g[13][76]=1; g[14][76]=1;
+        return g.flat();
+      })(),
+      spawn: {x: TS*4, y: TS*10}
+    }
+  ];
+
+  // ===== Entities =====
+  const player = {x:0,y:0,w:18,h:22, vx:0,vy:0, onGround:false, facing:1, lives:3, honey:0, inv:0, coyote:0, jumpBuf:0, spawnX:0, spawnY:0};
+  const enemies = []; // {x,y,w,h,vx,vy,speed}
+  const items = []; // {x,y,type,alive}
+  let levelIndex=0, level, running=false, gameOver=false, levelClear=false; let camX=0, camY=0;
+
+  function tAt(tx,ty){ if(tx<0||ty<0||tx>=level.w||ty>=level.h) return 1; return level.tiles[ty*level.w+tx]; }
+  function setT(tx,ty,v){ if(tx<0||ty<0||tx>=level.w||ty>=level.h) return; level.tiles[ty*level.w+tx]=v; }
+
+  function loadLevel(i){ levelIndex=i; level=LEVELS[i]; enemies.length=0; items.length=0; player.honey=0; player.inv=0; player.lives = player.lives || 3; // keep
+    // scan tiles for items/enemies
+    for(let ty=0; ty<level.h; ty++) for(let tx=0; tx<level.w; tx++){
+      const t=tAt(tx,ty);
+      const x=tx*TS+TS/2, y=ty*TS+TS/2;
+      if(t===3){ items.push({x,y,type:'honey',alive:true}); }
+      else if(t===8){ enemies.push({x:x, y:y-4, w:20, h:18, vx:60*(Math.random()<0.5?-1:1), vy:0, speed:60}); setT(tx,ty,0); }
+    }
+    uiHoneyMax.textContent = items.length;
+    uiHoney.textContent = player.honey;
+    uiLevel.textContent = (i+1);
+    player.x = level.spawn.x; player.y = level.spawn.y; player.vx=0; player.vy=0; player.spawnX=player.x; player.spawnY=player.y; camX=player.x-480; camY=player.y-270;
+  }
+
+  // ===== Physics helpers =====
+  function aabb(vx, vy, ent){ // resolve against tiles
+    // X axis
+    ent.x += vx;
+    const left = Math.floor((ent.x - ent.w/2)/TS);
+    const right = Math.floor((ent.x + ent.w/2)/TS);
+    const top = Math.floor((ent.y - ent.h/2)/TS);
+    const bottom = Math.floor((ent.y + ent.h/2)/TS);
+    for(let ty=top; ty<=bottom; ty++) for(let tx=left; tx<=right; tx++){
+      const t=tAt(tx,ty); if(t===T.SOLID){
+        const tileX = tx*TS+TS/2; const tileW=TS;
+        const dx = (ent.x - tileX) > 0 ? (ent.x - (tileX+tileW/2)) : ((tileX - tileW/2) - ent.x);
+        if(dx<0){ if(vx>0) ent.x = tileX - tileW/2 - ent.w/2; else if(vx<0) ent.x = tileX + tileW/2 + ent.w/2; }
+      }
+    }
+    // Y axis
+    ent.y += vy; ent.onGround=false;
+    const l = Math.floor((ent.x - ent.w/2)/TS);
+    const r = Math.floor((ent.x + ent.w/2)/TS);
+    const t0 = Math.floor((ent.y - ent.h/2)/TS);
+    const b0 = Math.floor((ent.y + ent.h/2)/TS);
+    for(let ty=t0; ty<=b0; ty++) for(let tx=l; tx<=r; tx++){
+      const t=tAt(tx,ty); if(t===T.SOLID || (t===T.PLATFORM && vy>0 && (ent.y - ent.h/2) < ty*TS + 4)){
+        const tileY = ty*TS+TS/2; const tileH=TS;
+        if(vy>0){ ent.y = tileY - tileH/2 - ent.h/2; ent.onGround=true; }
+        else if(vy<0){ ent.y = tileY + tileH/2 + ent.h/2; }
+      }
+    }
+  }
+
+  function damage(d=1){ if(player.inv>0) return; player.lives-=d; player.inv=1.2; beep(220,0.08,'sawtooth'); if(player.lives<=0){ endGame(); } else respawn(); }
+  function respawn(){ player.x=player.spawnX; player.y=player.spawnY; player.vx=0; player.vy=0; }
+
+  // ===== Update =====
+  let last=0, acc=0; const STEP=1/60, MAX_DT=1/15;
+  function frame(t){ if(!running) return; requestAnimationFrame(frame); if(!last) last=t; let dt=(t-last)/1000; last=t; dt=Math.min(dt,MAX_DT); acc+=dt; while(acc>=STEP){ update(STEP); acc-=STEP; } render(dt); }
+
+  function update(dt){
+    // input
+    const left = Keys.has('arrowleft') || Keys.has('a');
+    const right = Keys.has('arrowright') || Keys.has('d');
+    const jumpPressed = Keys.has(' ') || Keys.has('w') || Keys.has('arrowup');
+
+    // horizontal accel/friction
+    if(left) player.vx = Math.max(player.vx - ACCEL*dt, -MAX_DX);
+    if(right) player.vx = Math.min(player.vx + ACCEL*dt,  MAX_DX);
+    if(!left && !right){ if(player.vx>0){ player.vx = Math.max(0, player.vx - FRICTION*dt); } else if(player.vx<0){ player.vx = Math.min(0, player.vx + FRICTION*dt); } }
+    player.facing = right ? 1 : left ? -1 : player.facing;
+
+    // jump buffering & coyote
+    player.coyote = Math.max(0, player.onGround ? COYOTE_TIME : player.coyote - dt);
+    player.jumpBuf = Math.max(0, jumpPressed ? JUMP_BUFFER_TIME : player.jumpBuf - dt);
+    if(jumpPressed) player.jumpBuf = JUMP_BUFFER_TIME; // refresh while held
+
+    // gravity
+    player.vy += GRAV*dt;
+
+    // try jump
+    if(player.jumpBuf>0 && player.coyote>0){ player.vy = JUMP_V; player.onGround=false; player.coyote=0; player.jumpBuf=0; beep(700,0.06,'triangle'); }
+
+    // move & collide
+    aabb(player.vx*dt, 0, player);
+    aabb(0, player.vy*dt, player);
+
+    // if onGround, reset coyote
+    if(player.onGround) player.coyote = COYOTE_TIME; 
+
+    // environment interactions
+    player.inv = Math.max(0, player.inv - dt);
+
+    // tile checks small neighborhood
+    const tx = Math.floor(player.x/TS), ty = Math.floor(player.y/TS);
+    for(let yy=ty-1; yy<=ty+1; yy++) for(let xx=tx-1; xx<=tx+1; xx++){
+      const t=tAt(xx,yy);
+      if(t===T.HONEY){
+        // collect
+        setT(xx,yy,0); player.honey++; uiHoney.textContent=player.honey; items.forEach(it=>{ if(Math.floor(it.x/TS)===xx&&Math.floor(it.y/TS)===yy) it.alive=false; }); beep(880,0.06,'square');
+      } else if(t===T.SPIKE){
+        // hazard if overlapping
+        const rect={x:xx*TS+TS/2,y:yy*TS+TS/2,w:TS,h:TS}; if(overlap(player,rect)) damage(1);
+      } else if(t===T.SPRING){
+        const rect={x:xx*TS+TS/2,y:yy*TS+TS/2,w:TS,h:TS}; if(overlap(player,rect) && player.vy>0){ player.vy = JUMP_V*1.35; beep(900,0.08,'square'); }
+      } else if(t===T.SIGN){
+        // tip near start
+        // no-op visual only
+      } else if(t===T.CHECK){
+        if(overlap(player,{x:xx*TS+TS/2,y:yy*TS+TS/2,w:TS,h:TS})) { player.spawnX=xx*TS+TS/2; player.spawnY=yy*TS-TS/2; }
+      } else if(t===T.FLAG){
+        if(player.honey===items.length){ // all collected
+          levelClear=true; running=false; document.getElementById('clearHoney').textContent=player.honey; document.getElementById('clearHoneyMax').textContent=items.length; document.getElementById('levelClearOverlay').style.display='flex'; beep(520,0.2,'square');
+        }
+      }
+    }
+
+    // enemies
+    for(const e of enemies){
+      // patrol & gravity
+      e.vy += GRAV*dt; e.x += e.vx*dt; e.y += e.vy*dt;
+      // turn at edges or on wall
+      const aheadX = e.x + Math.sign(e.vx)* (e.w/2+2);
+      const feetY = e.y + e.h/2 + 2;
+      const txAhead = Math.floor(aheadX/TS), tyFeet = Math.floor(feetY/TS);
+      const groundAhead = tAt(txAhead, tyFeet);
+      const frontTile = tAt(Math.floor((e.x + Math.sign(e.vx)*e.w/2)/TS), Math.floor(e.y/TS));
+      if((groundAhead===0 || frontTile===1) && Math.random()<0.7){ e.vx = -e.vx; }
+      // collide with ground
+      // simple grounding
+      const below = tAt(Math.floor(e.x/TS), Math.floor((e.y+e.h/2)/TS));
+      if(below===1 || below===2){ e.vy=0; }
+
+      // stomp check
+      if(overlap(player,e)){
+        if(player.vy>120){ // stomp
+          e.y+=8; e.vx=0; e.h=0; e.w=0; // remove
+          beep(500,0.06,'triangle'); player.vy = JUMP_V*0.6;
+        } else {
+          damage(1);
+        }
+      }
+    }
+
+    // out of bounds
+    if(player.y>level.h*TS + 200){ damage(1); }
+
+    // camera follow
+    camX = clamp(player.x - canvas.width/DPR/2, 0, level.w*TS - canvas.width/DPR);
+    camY = clamp(player.y - canvas.height/DPR/2, 0, level.h*TS - canvas.height/DPR);
+
+    // UI
+    uiLives.textContent = player.lives;
+  }
+
+  function overlap(a,b){ return Math.abs(a.x-b.x)*2 < (a.w + (b.w||TS)) && Math.abs(a.y-b.y)*2 < (a.h + (b.h||TS)); }
+  const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+
+  // ===== Render =====
+  function render(dt){
+    drawBackground(dt);
+    ctx.save(); ctx.translate(-camX, -camY);
+    drawTiles();
+    drawItems();
+    drawEnemies();
+    drawPlayer();
+    ctx.restore();
+  }
+
+  function drawBackground(dt){
+    // layered parallax mountains/forest
+    const W=canvas.width/DPR, H=canvas.height/DPR; ctx.fillStyle='#0a1624'; ctx.fillRect(0,0,W,H);
+    const layers=[['#0f2238',0.2,80],['#13304a',0.4,50],['#184261',0.7,30]]; // color, parallax, height
+    layers.forEach(([col,par,h])=>{ ctx.fillStyle=col; const y=H-120*par; for(let i=-1;i<6;i++){ const x=((i*240)- (camX*par)%240); ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+160,y-20); ctx.lineTo(x+240,y); ctx.lineTo(x+300,y+40); ctx.lineTo(x-60,y+40); ctx.closePath(); ctx.fill(); }});
+  }
+
+  function drawTiles(){
+    for(let ty=0; ty<level.h; ty++) for(let tx=0; tx<level.w; tx++){
+      const t = tAt(tx,ty); const x=tx*TS; const y=ty*TS;
+      if(t===T.SOLID){ ctx.fillStyle=C.ground; ctx.fillRect(x,y,TS,TS); ctx.fillStyle='#1b2d44'; ctx.fillRect(x,y+TS-4,TS,4); }
+      else if(t===T.PLATFORM){ ctx.fillStyle=C.platform; ctx.fillRect(x,y+8,TS,4); }
+      else if(t===T.SPIKE){ ctx.fillStyle=C.spike; ctx.beginPath(); ctx.moveTo(x,y+TS); ctx.lineTo(x+TS/2,y+TS-12); ctx.lineTo(x+TS,y+TS); ctx.closePath(); ctx.fill(); }
+      else if(t===T.SPRING){ ctx.fillStyle=C.spring; ctx.fillRect(x+4,y+TS-8,TS-8,6); ctx.strokeStyle='#94d1cc'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x+6,y+TS-8); ctx.lineTo(x+TS-6,y+TS-8); ctx.stroke(); }
+      else if(t===T.SIGN){ ctx.fillStyle='#deb887'; ctx.fillRect(x+9,y+6,6,12); ctx.fillStyle='#f5deb3'; ctx.fillRect(x+4,y+2,16,10); }
+      else if(t===T.FLAG){ ctx.fillStyle=C.flag; ctx.fillRect(x+10,y-10,2,TS+10); ctx.fillStyle='#ff7f50'; ctx.beginPath(); ctx.moveTo(x+12,y+4); ctx.lineTo(x+12+14,y+9); ctx.lineTo(x+12,y+14); ctx.closePath(); ctx.fill(); }
+      else if(t===T.CHECK){ ctx.fillStyle='#ffe29a'; ctx.fillRect(x+6,y+6,12,12); }
+    }
+  }
+
+  function drawItems(){
+    for(const it of items){ if(!it.alive) continue; if(it.type==='honey'){ const r=6; ctx.fillStyle=C.honey; ctx.beginPath(); ctx.arc(it.x,it.y-4,r,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#ffad1f'; ctx.fillRect(it.x-3,it.y-6,6,3); }}
+  }
+
+  function drawEnemies(){
+    for(const e of enemies){ ctx.save(); ctx.translate(e.x, e.y); ctx.fillStyle=C.enemy; // simple fox-like critter
+      ctx.beginPath(); ctx.ellipse(0,0,10,7,0,0,Math.PI*2); ctx.fill(); // body
+      ctx.beginPath(); ctx.moveTo(-8,-4); ctx.lineTo(-12,-10); ctx.lineTo(-4,-6); ctx.closePath(); ctx.fill(); // ear
+      ctx.beginPath(); ctx.moveTo(8,-4); ctx.lineTo(12,-10); ctx.lineTo(4,-6); ctx.closePath(); ctx.fill(); // ear
+      ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(3,-2,1.3,0,Math.PI*2); ctx.fill(); // eye
+      ctx.restore(); }
+  }
+
+  function drawPlayer(){
+    const b=player; ctx.save(); ctx.translate(b.x,b.y);
+    // shadow
+    ctx.globalAlpha=.25; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(0,b.h/2,10,4,0,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+    // bear body
+    ctx.fillStyle='#9b6b3e'; ctx.beginPath(); ctx.ellipse(0,0,12,14,0,0,Math.PI*2); ctx.fill();
+    // head
+    ctx.beginPath(); ctx.ellipse(0,-12,10,9,0,0,Math.PI*2); ctx.fill();
+    // ear
+    ctx.beginPath(); ctx.ellipse(-6,-18,3,3,0,0,Math.PI*2); ctx.ellipse(6,-18,3,3,0,0,Math.PI*2); ctx.fill();
+    // muzzle
+    ctx.fillStyle='#d9b38c'; ctx.beginPath(); ctx.ellipse(2*b.facing,-12,6,4,0,0,Math.PI*2); ctx.fill();
+    // nose & eye
+    ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(2*b.facing-2,-13,1.3,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(3*b.facing,-14,1.3,0,Math.PI*2); ctx.fill();
+    // belly
+    ctx.fillStyle='#d9b38c'; ctx.beginPath(); ctx.ellipse(0,2,7,9,0,0,Math.PI*2); ctx.fill();
+    // backpack honey jar
+    ctx.fillStyle='#ffd166'; ctx.fillRect(-8*b.facing-3,-6,6,8);
+    ctx.restore();
+  }
+
+  // ===== Start/End =====
+  function start(){ document.getElementById('startOverlay').style.display='none'; running=true; last=0; requestAnimationFrame(frame); beep(480,0.12,'square'); }
+  function endGame(){ running=false; gameOver=true; document.getElementById('finalHoney').textContent=player.honey; document.getElementById('gameOverOverlay').style.display='flex'; }
+
+  document.getElementById('btnStart').addEventListener('click', ()=>{ loadLevel(0); start(); });
+  document.getElementById('btnRestart').addEventListener('click', ()=>{ gameOver=false; player.lives=3; loadLevel(0); document.getElementById('gameOverOverlay').style.display='none'; start(); });
+  document.getElementById('btnNext').addEventListener('click', ()=>{ levelClear=false; document.getElementById('levelClearOverlay').style.display='none'; // loop same level for demo
+    loadLevel(0); start(); });
+
+  // allow Space to start
+  addEventListener('keydown',e=>{ if((e.key===' '||e.key==='Enter') && !running && !gameOver && document.getElementById('startOverlay').style.display!=='none'){ e.preventDefault(); loadLevel(0); start(); }});
+
+  // pre-load for UI counts
+  loadLevel(0);
+  </script>
+</body>
+</html>
