@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>Squat Runner</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: #fff;
+            font: 14px/1.4 system-ui;
+        }
+
+        #ui {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+        }
+
+        canvas {
+            display: block;
+            margin: auto;
+            max-width: 100vw;
+        }
+    </style>
+    <!-- MediaPipe Tasks Pose (versi web) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js"></script>
+</head>
+
+<body>
+    <div id="ui">Squat: <span id="cnt">0</span> | State: <span id="st">IDLE</span></div>
+    <video id="cam" playsinline muted style="display:none"></video>
+    <canvas id="view" width="640" height="480"></canvas>
+    <script>
+        (async () => {
+            const video = document.getElementById('cam');
+            const canvas = document.getElementById('view');
+            const ctx = canvas.getContext('2d');
+            const stEl = document.getElementById('st');
+            const cntEl = document.getElementById('cnt');
+
+            // 1) camera
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            video.srcObject = stream; await video.play();
+
+            // 2) load pose
+            const fileset = await window.FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+            const pose = await window.PoseLandmarker.createFromOptions(fileset, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-assets/pose_landmarker_lite.task" },
+                runningMode: "VIDEO", numPoses: 1, minPoseDetectionConfidence: 0.5
+            });
+
+            // helper
+            const getAngle = (a, b, c) => {
+                const ab = [a.x - b.x, a.y - b.y], cb = [c.x - b.x, c.y - b.y];
+                const dot = ab[0] * cb[0] + ab[1] * cb[1];
+                const nab = Math.hypot(...ab), ncb = Math.hypot(...cb);
+                const cos = Math.min(1, Math.max(-1, dot / (nab * ncb)));
+                return Math.acos(cos) * 180 / Math.PI;
+            };
+
+            let state = "IDLE", reps = 0, kneeDown = false, baselineHipY = null;
+            const KNEE_DOWN_ANGLE = 95;   // <95° dianggap menekuk (squat bawah)
+            const KNEE_UP_ANGLE = 150;    // >150° dianggap berdiri (squat atas)
+
+            async function loop() {
+                const start = performance.now();
+                const result = await pose.detectForVideo(video, start);
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                if (result.landmarks && result.landmarks[0]) {
+                    const p = result.landmarks[0]; // 33 keypoints
+                    // titik yang dipakai
+                    const LHIP = p[23], LKNEE = p[25], LANK = p[27];
+                    const RHIP = p[24], RKNEE = p[26], RANK = p[28];
+
+                    // sudut lutut kiri/kanan
+                    const angL = getAngle(LHIP, LKNEE, LANK);
+                    const angR = getAngle(RHIP, RKNEE, RANK);
+                    const knee = Math.min(angL, angR);
+
+                    // state squat (turun -> naik)
+                    if (!kneeDown && knee < KNEE_DOWN_ANGLE) { kneeDown = true; state = "DOWN"; }
+                    if (kneeDown && knee > KNEE_UP_ANGLE) { kneeDown = false; reps++; state = "JUMP"; /* trigger jump event */ }
+
+                    // gambar sederhana
+                    ctx.fillStyle = "#0f0"; ctx.fillText(`knee: ${knee.toFixed(0)}°`, 10, 470);
+                    stEl.textContent = state; cntEl.textContent = reps;
+                    if (state === "JUMP") state = "IDLE";
+                }
+                requestAnimationFrame(loop);
+            }
+            loop();
+        })();
+    </script>
+</body>
+
+</html>

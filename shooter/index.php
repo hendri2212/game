@@ -199,11 +199,9 @@
         <video id="video" playsinline></video>
     </div>
 
-    <!-- TensorFlow.js + BlazeFace (UMD) -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+    <script type="module">
+        import { FilesetResolver, FaceLandmarker, PoseLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
-    <script>
         (() => {
             // ===== Elements =====
             const video = document.getElementById('video');
@@ -226,7 +224,6 @@
             // ===== State =====
             const state = {
                 running: false,
-                model: null,
                 lastInfer: 0,
                 inferInterval: 80,
                 face: null, // {x, y, r} in canvas space
@@ -240,6 +237,35 @@
                 showbox: false,
                 camW: 640, camH: 480 // will be updated by stream
             };
+
+            // ===== Models (MediaPipe Tasks Vision) =====
+            let faceLandmarker = null;
+            let poseLandmarker = null;
+
+            async function loadModels() {
+                const fileset = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+                );
+
+                // Face Landmarker (landmarks-based for stability)
+                faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+                    baseOptions: {
+                        // Google-hosted prebuilt task model
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+                    },
+                    runningMode: "VIDEO",
+                    numFaces: 1
+                });
+
+                // Pose Landmarker (BlazePose)
+                poseLandmarker = await PoseLandmarker.createFromOptions(fileset, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task"
+                    },
+                    runningMode: "VIDEO",
+                    numPoses: 1
+                });
+            }
 
             // ===== Utils =====
             const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -272,9 +298,9 @@
                     await video.play();
                     state.camW = video.videoWidth || 1280;
                     state.camH = video.videoHeight || 720;
-                    statusEl.textContent = '📷 Kamera aktif, memuat model...';
+                    statusEl.textContent = '📷 Kamera aktif, memuat model MediaPipe...';
                     startBtn.disabled = true;
-                    await loadModel();
+                    await loadModels();
                     statusEl.textContent = '✅ Siap! Gerakkan kepala untuk menyundul bola.';
                     state.running = true;
                     onResize();
@@ -283,11 +309,6 @@
                     console.error(e);
                     statusEl.textContent = '❌ Akses kamera ditolak/gagal';
                 }
-            }
-
-            async function loadModel() {
-                // BlazeFace model (maxFaces:1)
-                state.model = await blazeface.load({ maxFaces: 1 });
             }
 
             startBtn.addEventListener('click', startCamera);
@@ -301,74 +322,128 @@
             }
             addEventListener('resize', onResize);
 
-            // ===== Inference =====
+            // ===== Inference (Face Landmarker + Pose Landmarker fusion) =====
             async function maybeInfer(now) {
-                if (!state.model || video.readyState < 2) return;
+                if (!faceLandmarker || !poseLandmarker || video.readyState < 2) return;
                 if (now - state.lastInfer < state.inferInterval) return;
                 state.lastInfer = now;
-                const preds = await state.model.estimateFaces(video, false);
-                if (preds && preds.length) {
-                    const p = preds[0];
-                    // BlazeFace returns topLeft & bottomRight in pixels of source
-                    const [x1, y1] = p.topLeft;
-                    const [x2, y2] = p.bottomRight;
-                    const cxv = (x1 + x2) * 0.5;
-                    const cyv = (y1 + y2) * 0.5;
-                    const bw = (x2 - x1), bh = (y2 - y1);
-                    const rHead = Math.max(bw, bh) * (+hscaleIn.value / 100); // scale slider
-                    // Map to canvas
-                    const sx = game.width / state.camW;
-                    const sy = game.height / state.camH;
-                    let cx = cxv * sx;
-                    if (state.mirror) cx = game.width - cx;
-                    const cy = cyv * sy;
-                    const r = rHead * ((sx + sy) * 0.5);
 
-                    if (state.face) {
-                        state.face.x = lerp(state.face.x, cx, state.smooth);
-                        state.face.y = lerp(state.face.y, cy, state.smooth);
-                        state.face.r = lerp(state.face.r, r, 0.2);
-                    } else {
-                        state.face = { x: cx, y: cy, r };
+                const ts = performance.now();
+
+                const faceRes = faceLandmarker.detectForVideo(video, ts);
+                const poseRes = poseLandmarker.detectForVideo(video, ts);
+
+                let faceCenter = null, faceRadius = null;
+
+                if (faceRes && faceRes.faceLandmarks && faceRes.faceLandmarks.length) {
+                    const pts = faceRes.faceLandmarks[0]; // 468 points, normalized [0..1]
+                    let minx = 1, miny = 1, maxx = 0, maxy = 0;
+                    for (const pt of pts) {
+                        if (pt.x < minx) minx = pt.x;
+                        if (pt.y < miny) miny = pt.y;
+                        if (pt.x > maxx) maxx = pt.x;
+                        if (pt.y > maxy) maxy = pt.y;
                     }
+                    const cxNorm = (minx + maxx) * 0.5;
+                    const cyNorm = (miny + maxy) * 0.5;
+                    let cx = cxNorm * game.width;
+                    if (state.mirror) cx = game.width - cx;
+                    const cy = cyNorm * game.height;
+                    const rpx = (maxx - minx) * game.width * 0.5;
+                    const rpy = (maxy - miny) * game.height * 0.5;
+                    const r = Math.max(rpx, rpy) * (+hscaleIn.value / 100);
 
-                    // Debug draw (video to debug canvas + bbox)
+                    faceCenter = { x: cx, y: cy };
+                    faceRadius = r;
+
+                    // Debug draw (video + bbox)
                     d.save();
                     if (state.mirror) { d.translate(debug.width, 0); d.scale(-1, 1); }
                     d.drawImage(video, 0, 0, debug.width, debug.height);
                     d.restore();
                     if (state.showbox) {
-                        d.strokeStyle = 'rgba(0,255,180,.9)'; d.lineWidth = 2;
-                        const bx = x1 * (debug.width / state.camW);
-                        const by = y1 * (debug.height / state.camH);
-                        const bw2 = bw * (debug.width / state.camW);
-                        const bh2 = bh * (debug.height / state.camH);
-                        const drawX = state.mirror ? (debug.width - bx - bw2) : bx;
-                        d.strokeRect(drawX, by, bw2, bh2);
+                        const bx = minx * debug.width;
+                        const by = miny * debug.height;
+                        const bw = (maxx - minx) * debug.width;
+                        const bh = (maxy - miny) * debug.height;
+                        const drawX = state.mirror ? (debug.width - bx - bw) : bx;
+                        d.strokeStyle = 'rgba(0,255,180,.9)';
+                        d.lineWidth = 2;
+                        d.strokeRect(drawX, by, bw, bh);
                     }
                 } else {
-                    // No face
                     d.clearRect(0, 0, debug.width, debug.height);
-                    state.face = null;
+                }
+
+                // Pose landmarks
+                let poseCenter = null, poseRadius = null;
+                const poseLmsList = (poseRes && (poseRes.landmarks || poseRes.poseLandmarks)) || [];
+                if (poseLmsList.length) {
+                    const lm = poseLmsList[0]; // 33 landmarks
+                    const nose = lm[0];
+                    const leftEar = lm[7];   // MediaPipe index (may vary by version)
+                    const rightEar = lm[8];
+                    const pts = [];
+                    if (nose) pts.push(nose);
+                    if (leftEar) pts.push(leftEar);
+                    if (rightEar) pts.push(rightEar);
+                    if (pts.length) {
+                        let cxNorm = 0, cyNorm = 0;
+                        for (const p of pts) { cxNorm += p.x; cyNorm += p.y; }
+                        cxNorm /= pts.length; cyNorm /= pts.length;
+
+                        let cx = cxNorm * game.width;
+                        if (state.mirror) cx = game.width - cx;
+                        const cy = cyNorm * game.height;
+                        poseCenter = { x: cx, y: cy };
+
+                        if (leftEar && rightEar) {
+                            const dx = (rightEar.x - leftEar.x) * game.width;
+                            const dy = (rightEar.y - leftEar.y) * game.height;
+                            poseRadius = Math.hypot(dx, dy) * 0.35;
+                        } else {
+                            poseRadius = faceRadius || 40;
+                        }
+                    }
+                }
+
+                // Fuse centers (prefer face for accuracy, blend with pose for stability)
+                let cx, cy, r;
+                if (faceCenter && poseCenter) {
+                    cx = lerp(poseCenter.x, faceCenter.x, 0.7);
+                    cy = lerp(poseCenter.y, faceCenter.y, 0.7);
+                    r = lerp(poseRadius || faceRadius, faceRadius || poseRadius, 0.7);
+                } else if (faceCenter) {
+                    cx = faceCenter.x; cy = faceCenter.y; r = faceRadius;
+                } else if (poseCenter) {
+                    cx = poseCenter.x; cy = poseCenter.y; r = poseRadius;
+                } else {
+                    state.face = null; return;
+                }
+
+                if (state.face) {
+                    state.face.x = lerp(state.face.x, cx, state.smooth);
+                    state.face.y = lerp(state.face.y, cy, state.smooth);
+                    state.face.r = lerp(state.face.r, r, 0.2);
+                } else {
+                    state.face = { x: cx, y: cy, r };
                 }
             }
 
-            // ===== Game Objects =====
-            function spawnBall() {
-                const r = 18 + Math.random() * 18;
+            // ===== Game Objects (same as current, with TTL + countdown ring) =====
+            function spawnTarget() {
+                const r = 26 + Math.random() * 24;
                 const margin = Math.max(40, r + 10);
                 const x = margin + Math.random() * (game.width - margin * 2);
                 const y = margin + Math.random() * (game.height - margin * 2);
-                const hue = 200 + Math.random() * 120;
-                const speed = 60 + Math.random() * 80;
-                const ang = Math.random() * Math.PI * 2;
-                const vx = Math.cos(ang) * speed;
-                const vy = Math.sin(ang) * speed;
-                state.targets.push({ x, y, r, vx, vy, hue, alive: true });
+                const maxTtl = 7 + Math.random() * 4; // seconds
+                const ttl = maxTtl;
+                const hue = 200 + Math.random() * 100;
+                state.targets.push({ x, y, r, ttl, maxTtl, hue });
             }
 
-            function ensureBalls(n = 5) {
-                while (state.targets.length < n) spawnBall();
+            function ensureTargets(n = 4) {
+                while (state.targets.length < n) spawnTarget();
                 tcountEl.textContent = state.targets.length;
             }
 
@@ -383,7 +458,7 @@
                     const sp = 100 + Math.random() * 140;
                     state.particles.push({ x: t.x, y: t.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: .4 + .3 * Math.random() });
                 }
-                setTimeout(spawnBall, 350 + Math.random() * 400);
+                setTimeout(spawnTarget, 350 + Math.random() * 400);
                 scoreEl.textContent = state.score;
                 updateAcc();
             }
@@ -399,41 +474,23 @@
                 if (!state.running) return;
                 const dt = Math.min(0.05, (now - last) / 1000); last = now;
 
-                ensureBalls(5);
+                ensureTargets(4);
                 maybeInfer(now);
 
-                // Physics
+                // Physics (TTL countdown + head collision)
                 for (let i = state.targets.length - 1; i >= 0; i--) {
                     const t = state.targets[i];
-                    t.x += t.vx * dt; t.y += t.vy * dt;
-                    // bounce walls
-                    if (t.x < t.r) { t.x = t.r; t.vx *= -1; }
-                    if (t.x > game.width - t.r) { t.x = game.width - t.r; t.vx *= -1; }
-                    if (t.y < t.r) { t.y = t.r; t.vy *= -1; }
-                    if (t.y > game.height - t.r) { t.y = game.height - t.r; t.vy *= -1; }
+                    // countdown
+                    t.ttl -= dt;
+                    if (t.ttl <= 0) { state.targets.splice(i, 1); continue; }
 
-                    // collision with head
+                    // collision with head (sundul)
                     if (state.face) {
                         const d2 = dist2(state.face.x, state.face.y, t.x, t.y);
                         const rr = (state.face.r + t.r);
                         if (d2 <= rr * rr) {
-                            // "Header": reflect ball away from head, also count as swing
                             state.swings++;
-                            // compute normal
-                            const dx = t.x - state.face.x, dy = t.y - state.face.y;
-                            const len = Math.max(1e-3, Math.hypot(dx, dy));
-                            const nx = dx / len, ny = dy / len;
-                            const speed = Math.hypot(t.vx, t.vy);
-                            // reflect & boost
-                            t.vx = nx * (speed + 180);
-                            t.vy = ny * (speed + 180);
-                            // If collision is strong (close center), pop the ball
-                            if (len < state.face.r * 0.55) {
-                                popBall(i);
-                            } else {
-                                beep(720, 60, 0.10);
-                                updateAcc();
-                            }
+                            popBall(i);
                         }
                     }
                 }
@@ -453,7 +510,7 @@
                 const w = game.width, h = game.height;
                 g.clearRect(0, 0, w, h);
 
-                // balls
+                // targets (stationary with TTL + countdown ring)
                 for (const t of state.targets) {
                     g.save();
                     const grad = g.createRadialGradient(t.x - 4, t.y - 6, t.r * 0.2, t.x, t.y, t.r);
@@ -462,6 +519,12 @@
                     g.fillStyle = grad;
                     g.beginPath(); g.arc(t.x, t.y, t.r, 0, Math.PI * 2); g.fill();
                     g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.35)'; g.stroke();
+
+                    // countdown ring ala index1.html
+                    const frac = clamp(t.ttl / t.maxTtl, 0, 1);
+                    g.beginPath(); g.strokeStyle = 'rgba(255,255,255,.6)';
+                    g.arc(t.x, t.y, t.r + 4, -Math.PI / 2, -Math.PI / 2 + frac * 2 * Math.PI);
+                    g.stroke();
                     g.restore();
                 }
 
