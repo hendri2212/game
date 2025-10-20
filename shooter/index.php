@@ -133,13 +133,6 @@
             color: var(--fg);
         }
 
-        #debug {
-            width: 220px;
-            height: 165px;
-            image-rendering: pixelated;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, .08);
-        }
 
         #video {
             display: none;
@@ -216,7 +209,6 @@
 
         <div class="panel">
             <button id="startBtn" class="primary">🎥 Start Camera</button>
-            <canvas id="debug" width="200" height="150" title="Preview & deteksi (bbox)"></canvas>
         </div>
 
         <div class="controls">
@@ -226,7 +218,6 @@
                     value="80" /></div>
             <div class="row"><span>Head radius scale</span><input id="hscale" type="range" min="30" max="80"
                     value="45" /></div>
-            <div class="row"><span>Tampilkan bbox</span><input id="showbox" type="checkbox" /></div>
             <div class="row"><span>Target aktif</span><code id="tcount">0</code></div>
         </div>
         <!-- Right-side Leaderboard Panel -->
@@ -279,8 +270,6 @@
             const video = document.getElementById('video');
             const game = document.getElementById('game');
             const g = game.getContext('2d', { alpha: false });
-            const debug = document.getElementById('debug');
-            const d = debug.getContext('2d', { willReadFrequently: true });
 
             const scoreEl = document.getElementById('score');
             const accEl = document.getElementById('acc');
@@ -290,7 +279,6 @@
             const mirrorIn = document.getElementById('mirror');
             const intervalIn = document.getElementById('interval');
             const hscaleIn = document.getElementById('hscale');
-            const showboxIn = document.getElementById('showbox');
             const tcountEl = document.getElementById('tcount');
             const timeEl  = document.getElementById('timeleft');
             const durIn   = document.getElementById('dur');
@@ -356,7 +344,6 @@
                 gameDurationMs: 60_000,
                 timeLeftMs: 60_000,
                 scoreSaved: false,
-                showbox: false,
                 camW: 640, camH: 480 // will be updated by stream
             };
 
@@ -493,8 +480,6 @@
             function onResize() {
                 game.width = game.clientWidth;
                 game.height = game.clientHeight;
-                debug.width = 200;
-                debug.height = Math.round(200 * (state.camH / state.camW));
             }
             addEventListener('resize', onResize);
 
@@ -531,24 +516,6 @@
 
                     faceCenter = { x: cx, y: cy };
                     faceRadius = r;
-
-                    // Debug draw (video + bbox)
-                    d.save();
-                    if (state.mirror) { d.translate(debug.width, 0); d.scale(-1, 1); }
-                    d.drawImage(video, 0, 0, debug.width, debug.height);
-                    d.restore();
-                    if (state.showbox) {
-                        const bx = minx * debug.width;
-                        const by = miny * debug.height;
-                        const bw = (maxx - minx) * debug.width;
-                        const bh = (maxy - miny) * debug.height;
-                        const drawX = state.mirror ? (debug.width - bx - bw) : bx;
-                        d.strokeStyle = 'rgba(0,255,180,.9)';
-                        d.lineWidth = 2;
-                        d.strokeRect(drawX, by, bw, bh);
-                    }
-                } else {
-                    d.clearRect(0, 0, debug.width, debug.height);
                 }
 
                 // Pose landmarks
@@ -807,9 +774,34 @@
 
             function draw() {
                 const w = game.width, h = game.height;
-                g.clearRect(0, 0, w, h);
 
-                // targets (stationary with TTL + countdown ring)
+                // 1) Draw webcam as background (object-fit: cover), honoring Mirror setting
+                if (video.readyState >= 2) {
+                    g.save();
+                    // Mirror the whole background if enabled
+                    if (state.mirror) {
+                        g.translate(w, 0);
+                        g.scale(-1, 1);
+                    }
+
+                    // Compute "cover" size to fill canvas without stretching
+                    const vidW = state.camW || video.videoWidth || 1280;
+                    const vidH = state.camH || video.videoHeight || 720;
+                    const scale = Math.max(w / vidW, h / vidH);
+                    const dw = vidW * scale;
+                    const dh = vidH * scale;
+                    const dx = (w - dw) / 2;
+                    const dy = (h - dh) / 2;
+
+                    // Draw the camera frame
+                    g.drawImage(video, dx, dy, dw, dh);
+                    g.restore();
+                } else {
+                    // Fallback: simple clear if camera not ready
+                    g.clearRect(0, 0, w, h);
+                }
+
+                // 2) Draw targets (stationary with TTL + countdown ring) on top of the video
                 for (const t of state.targets) {
                     g.save();
                     const grad = g.createRadialGradient(t.x - 4, t.y - 6, t.r * 0.2, t.x, t.y, t.r);
@@ -819,7 +811,7 @@
                     g.beginPath(); g.arc(t.x, t.y, t.r, 0, Math.PI * 2); g.fill();
                     g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.35)'; g.stroke();
 
-                    // countdown ring ala index1.html
+                    // countdown ring
                     const frac = clamp(t.ttl / t.maxTtl, 0, 1);
                     g.beginPath(); g.strokeStyle = 'rgba(255,255,255,.6)';
                     g.arc(t.x, t.y, t.r + 4, -Math.PI / 2, -Math.PI / 2 + frac * 2 * Math.PI);
@@ -827,17 +819,17 @@
                     g.restore();
                 }
 
-                // particles
+                // 3) Particles
                 for (const p of state.particles) {
                     g.globalAlpha = clamp(p.life / 0.4, 0, 1);
                     g.fillStyle = '#ffe08a'; g.fillRect(p.x, p.y, 2, 2);
                 }
                 g.globalAlpha = 1;
 
-                // head circle
+                // 4) Head circle (kept as a subtle visual aid for collision). Comment out if you want it invisible.
                 if (state.face) {
                     g.save();
-                    g.strokeStyle = '#e5fbff'; g.lineWidth = 3;
+                    g.strokeStyle = 'rgba(229, 251, 255, .85)'; g.lineWidth = 3;
                     g.beginPath(); g.arc(state.face.x, state.face.y, state.face.r, 0, Math.PI * 2); g.stroke();
                     g.lineWidth = 1.5; g.beginPath();
                     g.moveTo(state.face.x - 22, state.face.y); g.lineTo(state.face.x - 8, state.face.y);
@@ -847,8 +839,10 @@
                     g.stroke();
                     g.restore();
                 } else {
-                    // hint
-                    g.fillStyle = 'rgba(255,255,255,.15)';
+                    // hint overlay if face not detected
+                    g.fillStyle = 'rgba(0,0,0,.25)'; // soft overlay for readability
+                    g.fillRect(0, 0, w, h);
+                    g.fillStyle = 'rgba(255,255,255,.9)';
                     g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '600 18px system-ui';
                     g.fillText('Hadapkan wajah ke kamera. Pencahayaan cukup.', w / 2, h / 2);
                 }
@@ -858,7 +852,6 @@
             mirrorIn.addEventListener('change', () => { state.mirror = mirrorIn.checked; });
             intervalIn.addEventListener('input', () => { state.inferInterval = +intervalIn.value | 0; });
             hscaleIn.addEventListener('input', () => {/* used during infer to set radius */ });
-            showboxIn.addEventListener('change', () => { state.showbox = showboxIn.checked; });
 
             // ===== Boot =====
             if (location.protocol !== 'https:' && location.hostname !== 'localhost') {

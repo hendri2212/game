@@ -15,8 +15,16 @@ try {
             UNIQUE KEY uniq_phone (phone)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
+    $col = $pdo->query("SELECT COUNT(*) AS c
+                        FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'players'
+                          AND COLUMN_NAME = 'attempts'")->fetch();
+    if ((int)($col['c'] ?? 0) === 0) {
+        $pdo->exec("ALTER TABLE players ADD COLUMN attempts INT NOT NULL DEFAULT 0 AFTER score");
+    }
     // default: sort by score desc, then created_at asc
-    $players = $pdo->query("SELECT id, full_name, phone, score, created_at FROM players ORDER BY score DESC, created_at ASC")->fetchAll() ?: [];
+    $players = $pdo->query("SELECT id, full_name, phone, score, attempts, created_at FROM players ORDER BY score DESC, created_at ASC")->fetchAll() ?: [];
 } catch (Throwable $e) {
     http_response_code(500);
     echo '<pre>DB ERROR: '.htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8').'</pre>';
@@ -67,12 +75,13 @@ function wa_link(string $phone): string {
                     <th>Nama Lengkap</th>
                     <th>Nomor WhatsApp</th>
                     <th style="width:120px">Skor</th>
+                    <th style="width:120px">Percobaan</th>
                     <th style="width:110px">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (!$players): ?>
-                    <tr><td colspan="5" class="text-center text-muted py-4">Belum ada data</td></tr>
+                    <tr><td colspan="6" class="text-center text-muted py-4">Belum ada data</td></tr>
                     <?php else: ?>
                     <?php foreach ($players as $p): ?>
                         <tr data-id="<?= (int)$p['id'] ?>">
@@ -85,12 +94,14 @@ function wa_link(string $phone): string {
                             </a>
                         </td>
                         <td class="score"><?= (int)$p['score'] ?></td>
+                        <td class="attempts"><?= (int)$p['attempts'] ?></td>
                         <td>
                             <button type="button" class="btn btn-sm btn-primary btn-edit"
                                     data-id="<?= (int)$p['id'] ?>"
                                     data-full_name="<?= h($p['full_name']) ?>"
                                     data-phone="<?= h($p['phone']) ?>"
-                                    data-score="<?= (int)$p['score'] ?>">
+                                    data-score="<?= (int)$p['score'] ?>"
+                                    data-attempts="<?= (int)$p['attempts'] ?>">
                             Edit
                             </button>
                         </td>
@@ -125,6 +136,10 @@ function wa_link(string $phone): string {
                     <label class="form-label">Skor</label>
                     <input type="number" class="form-control" name="score" id="f_score" min="0" step="1">
                     </div>
+                    <div class="mb-3">
+                    <label class="form-label">Percobaan</label>
+                    <input type="number" class="form-control" name="attempts" id="f_attempts" min="0" step="1">
+                    </div>
                     <div id="editErr" class="alert alert-danger d-none"></div>
                 </div>
                 <div class="modal-footer">
@@ -144,6 +159,7 @@ function wa_link(string $phone): string {
             const f_full_name = document.getElementById('f_full_name');
             const f_phone = document.getElementById('f_phone');
             const f_score = document.getElementById('f_score');
+            const f_attempts = document.getElementById('f_attempts');
             let editModal;
 
             function openEdit(rowBtn) {
@@ -151,11 +167,13 @@ function wa_link(string $phone): string {
                 const full_name = rowBtn.getAttribute('data-full_name') || '';
                 const phone = rowBtn.getAttribute('data-phone') || '';
                 const score = rowBtn.getAttribute('data-score') || '0';
+                const attempts = rowBtn.getAttribute('data-attempts') || '0';
 
                 f_id.value = id;
                 f_full_name.value = full_name;
                 f_phone.value = phone;
                 f_score.value = score;
+                f_attempts.value = attempts;
 
                 if (!editModal) editModal = new bootstrap.Modal(editModalEl);
                 errBox.classList.add('d-none'); errBox.textContent = '';
@@ -176,6 +194,7 @@ function wa_link(string $phone): string {
                 const full_name = (fd.get('full_name') || '').toString().trim();
                 let phone = (fd.get('phone') || '').toString().trim();
                 const score = (fd.get('score') || '0').toString().trim();
+                const attempts = (fd.get('attempts') || '0').toString().trim();
 
                 if (full_name.length < 3) {
                     errBox.textContent = 'Nama minimal 3 karakter.'; errBox.classList.remove('d-none'); return;
@@ -191,7 +210,7 @@ function wa_link(string $phone): string {
                     const res = await fetch('save.php', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: new URLSearchParams({ action:'update', id, full_name, phone, score }).toString()
+                        body: new URLSearchParams({ action:'update', id, full_name, phone, score, attempts }).toString()
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal update.');

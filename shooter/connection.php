@@ -28,12 +28,34 @@ function db(): PDO {
     ];
 
     try {
+        // Try connecting directly to the target database
         $pdo = new PDO($dsn, $user, $pass, $options);
     } catch (PDOException $e) {
-        http_response_code(500);
-        header('Content-Type: text/plain; charset=utf-8');
-        echo "DB_ERROR: " . $e->getMessage();
-        exit;
+        // If the error is "Unknown database", attempt to create it, then reconnect
+        $unknownDb = ($e->getCode() === 1049) || (strpos($e->getMessage(), 'Unknown database') !== false);
+        if ($unknownDb) {
+            try {
+                // Connect without selecting a database
+                $serverDsn = "mysql:host={$host};port={$port};charset={$charset}";
+                $serverPdo = new PDO($serverDsn, $user, $pass, $options);
+                // Create the database safely (escape backticks)
+                $safeDb = str_replace('`', '``', $dbname);
+                $collation = 'utf8mb4_unicode_ci';
+                $serverPdo->exec("CREATE DATABASE IF NOT EXISTS `{$safeDb}` DEFAULT CHARACTER SET {$charset} COLLATE {$collation}");
+                // Reconnect to the newly created database
+                $pdo = new PDO($dsn, $user, $pass, $options);
+            } catch (PDOException $inner) {
+                http_response_code(500);
+                header('Content-Type: text/plain; charset=utf-8');
+                echo "DB_ERROR_CREATE: " . $inner->getMessage();
+                exit;
+            }
+        } else {
+            http_response_code(500);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "DB_ERROR: " . $e->getMessage();
+            exit;
+        }
     }
 
     return $pdo;

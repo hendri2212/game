@@ -22,15 +22,27 @@ if ($action === 'update') {
                 full_name VARCHAR(100) NOT NULL,
                 phone VARCHAR(30) NOT NULL,
                 score INT NOT NULL DEFAULT 0,
+                attempts INT NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE KEY uniq_phone (phone)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ");
+        $col = $pdo->query("SELECT COUNT(*) AS c
+                            FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = 'players'
+                              AND COLUMN_NAME = 'attempts'")->fetch();
+        if ((int)($col['c'] ?? 0) === 0) {
+            $pdo->exec("ALTER TABLE players ADD COLUMN attempts INT NOT NULL DEFAULT 0 AFTER score");
+        }
 
         $id        = (int)($_POST['id'] ?? 0);
         $full_name = trim($_POST['full_name'] ?? '');
         $phone_raw = trim($_POST['phone'] ?? '');
         $score_val = (int)($_POST['score'] ?? 0);
+        $attempts_val = (int)($_POST['attempts'] ?? 0);
+        if ($attempts_val < 0) $attempts_val = 0;
+        if ($attempts_val > 100000000) $attempts_val = 100000000;
 
         if ($id <= 0) { http_response_code(422); echo json_encode(['ok'=>false,'error'=>'ID tidak valid']); exit; }
         if (strlen($full_name) < 3) { http_response_code(422); echo json_encode(['ok'=>false,'error'=>'Nama minimal 3 karakter']); exit; }
@@ -55,8 +67,8 @@ if ($action === 'update') {
             exit;
         }
 
-        $upd = $pdo->prepare('UPDATE players SET full_name = ?, phone = ?, score = ? WHERE id = ?');
-        $upd->execute([$full_name, $phone, $score_val, $id]);
+        $upd = $pdo->prepare('UPDATE players SET full_name = ?, phone = ?, score = ?, attempts = ? WHERE id = ?');
+        $upd->execute([$full_name, $phone, $score_val, $attempts_val, $id]);
 
         if ($upd->rowCount() === 0) {
             // No change or not found
@@ -87,11 +99,20 @@ if ($action === 'leaders') {
                 full_name VARCHAR(100) NOT NULL,
                 phone VARCHAR(30) NOT NULL,
                 score INT NOT NULL DEFAULT 0,
+                attempts INT NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE KEY uniq_phone (phone)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ");
-        $stmt = $pdo->query("SELECT full_name, phone, score FROM players ORDER BY score DESC, created_at ASC LIMIT 15");
+        $col = $pdo->query("SELECT COUNT(*) AS c
+                            FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = 'players'
+                              AND COLUMN_NAME = 'attempts'")->fetch();
+        if ((int)($col['c'] ?? 0) === 0) {
+            $pdo->exec("ALTER TABLE players ADD COLUMN attempts INT NOT NULL DEFAULT 0 AFTER score");
+        }
+        $stmt = $pdo->query("SELECT full_name, phone, score, attempts FROM players ORDER BY score DESC, created_at ASC LIMIT 15");
         $players = $stmt->fetchAll() ?: [];
         echo json_encode(['ok' => true, 'players' => $players]);
     } catch (Throwable $e) {
@@ -121,7 +142,7 @@ if ($action === 'score' || isset($_POST['score'])) {
 
     try {
         $pdo = db();
-        $upd = $pdo->prepare('UPDATE players SET score = ? WHERE phone = ?');
+        $upd = $pdo->prepare('UPDATE players SET score = ?, attempts = attempts + 1 WHERE phone = ?');
         // $upd = $pdo->prepare('UPDATE players SET score = GREATEST(score, ?) WHERE phone = ?'); // only update if new score is higher
         $upd->execute([$score_val, $phone]);
         if ($upd->rowCount() === 0) {
@@ -167,10 +188,19 @@ try {
             full_name VARCHAR(100) NOT NULL,
             phone VARCHAR(30) NOT NULL,
             score INT NOT NULL DEFAULT 0,
+            attempts INT NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_phone (phone)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
+    $col = $pdo->query("SELECT COUNT(*) AS c
+                        FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'players'
+                          AND COLUMN_NAME = 'attempts'")->fetch();
+    if ((int)($col['c'] ?? 0) === 0) {
+        $pdo->exec("ALTER TABLE players ADD COLUMN attempts INT NOT NULL DEFAULT 0 AFTER score");
+    }
 
     // check existing by phone
     $sel = $pdo->prepare('SELECT id FROM players WHERE phone = ? LIMIT 1');
@@ -182,7 +212,7 @@ try {
     }
 
     // insert new
-    $ins = $pdo->prepare('INSERT INTO players (full_name, phone, score) VALUES (?, ?, 0)');
+    $ins = $pdo->prepare('INSERT INTO players (full_name, phone, score, attempts) VALUES (?, ?, 0, 0)');
     $ins->execute([$full_name, $phone]);
     $id = (int)$pdo->lastInsertId();
 
