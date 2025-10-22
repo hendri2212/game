@@ -14,10 +14,12 @@ function db(): PDO {
     }
 
     $host    = getenv('DB_HOST') ?: '127.0.0.1';
-    $port    = getenv('DB_PORT') ?: '8889';
+    // $port    = getenv('DB_PORT') ?: '8889';
+    $port    = getenv('DB_PORT') ?: '3306';
     $dbname  = getenv('DB_NAME') ?: 'game';
     $user    = getenv('DB_USER') ?: 'root';
-    $pass    = getenv('DB_PASS') ?: 'root';
+    // $pass    = getenv('DB_PASS') ?: 'root';
+    $pass    = getenv('DB_PASS') ?: '';
     $charset = 'utf8mb4';
 
     $dsn = "mysql:host={$host};port={$port};dbname={$dbname};charset={$charset}";

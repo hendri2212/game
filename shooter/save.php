@@ -142,8 +142,8 @@ if ($action === 'score' || isset($_POST['score'])) {
 
     try {
         $pdo = db();
-        $upd = $pdo->prepare('UPDATE players SET score = ?, attempts = attempts + 1 WHERE phone = ?');
-        // $upd = $pdo->prepare('UPDATE players SET score = GREATEST(score, ?) WHERE phone = ?'); // only update if new score is higher
+        // $upd = $pdo->prepare('UPDATE players SET score = ?, attempts = attempts + 1 WHERE phone = ?');
+        $upd = $pdo->prepare('UPDATE players SET score = GREATEST(score, ?) WHERE phone = ?'); // only update if new score is higher
         $upd->execute([$score_val, $phone]);
         if ($upd->rowCount() === 0) {
             http_response_code(404);

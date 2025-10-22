@@ -76,7 +76,7 @@ function wa_link(string $phone): string {
                     <th>Nomor WhatsApp</th>
                     <th style="width:120px">Skor</th>
                     <th style="width:120px">Percobaan</th>
-                    <th style="width:110px">Aksi</th>
+                    <th style="width:170px">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -96,14 +96,21 @@ function wa_link(string $phone): string {
                         <td class="score"><?= (int)$p['score'] ?></td>
                         <td class="attempts"><?= (int)$p['attempts'] ?></td>
                         <td>
-                            <button type="button" class="btn btn-sm btn-primary btn-edit"
-                                    data-id="<?= (int)$p['id'] ?>"
-                                    data-full_name="<?= h($p['full_name']) ?>"
-                                    data-phone="<?= h($p['phone']) ?>"
-                                    data-score="<?= (int)$p['score'] ?>"
-                                    data-attempts="<?= (int)$p['attempts'] ?>">
-                            Edit
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-primary btn-edit"
+                                        data-id="<?= (int)$p['id'] ?>"
+                                        data-full_name="<?= h($p['full_name']) ?>"
+                                        data-phone="<?= h($p['phone']) ?>"
+                                        data-score="<?= (int)$p['score'] ?>"
+                                        data-attempts="<?= (int)$p['attempts'] ?>">
+                                    Edit
+                                </button>
+                                <button type="button" class="btn btn-sm btn-danger btn-delete"
+                                        data-id="<?= (int)$p['id'] ?>"
+                                        data-full_name="<?= h($p['full_name']) ?>">
+                                    Delete
+                                </button>
+                            </div>
                         </td>
                         </tr>
                     <?php endforeach; ?>
@@ -114,38 +121,38 @@ function wa_link(string $phone): string {
     </div>
 
     <!-- Edit Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade text-black" id="editModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
-            <form class="modal-content" id="editForm">
+            <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Edit Pemain</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="hidden" name="id" id="f_id">
+                    <input type="hidden" id="f_id">
                     <div class="mb-3">
-                    <label class="form-label">Nama Lengkap</label>
-                    <input type="text" class="form-control" name="full_name" id="f_full_name" required minlength="3">
+                        <label class="form-label">Nama Lengkap</label>
+                        <input type="text" class="form-control" id="f_full_name" required minlength="3">
                     </div>
                     <div class="mb-3">
-                    <label class="form-label">Nomor WhatsApp</label>
-                    <input type="tel" class="form-control" name="phone" id="f_phone" required>
-                    <div class="form-text">Contoh: 08xxxxxxxxxx atau +62xxxxxxxxxx</div>
+                        <label class="form-label">Nomor WhatsApp</label>
+                        <input type="tel" class="form-control" id="f_phone" required>
+                        <div class="form-text">Contoh: 08xxxxxxxxxx atau +62xxxxxxxxxx</div>
                     </div>
                     <div class="mb-3">
-                    <label class="form-label">Skor</label>
-                    <input type="number" class="form-control" name="score" id="f_score" min="0" step="1">
+                        <label class="form-label">Skor</label>
+                        <input type="number" class="form-control" id="f_score" min="0" step="1">
                     </div>
                     <div class="mb-3">
-                    <label class="form-label">Percobaan</label>
-                    <input type="number" class="form-control" name="attempts" id="f_attempts" min="0" step="1">
+                        <label class="form-label">Percobaan</label>
+                        <input type="number" class="form-control" id="f_attempts" min="0" step="1">
                     </div>
                     <div id="editErr" class="alert alert-danger d-none"></div>
                 </div>
                 <div class="modal-footer">
-                    <button type="submit" class="btn btn-primary w-100">Simpan Perubahan</button>
+                    <button type="button" class="btn btn-primary w-100" id="btnSaveEdit">Simpan Perubahan</button>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 
@@ -153,13 +160,13 @@ function wa_link(string $phone): string {
     <script>
         (function(){
             const editModalEl = document.getElementById('editModal');
-            const editForm = document.getElementById('editForm');
             const errBox = document.getElementById('editErr');
             const f_id = document.getElementById('f_id');
             const f_full_name = document.getElementById('f_full_name');
             const f_phone = document.getElementById('f_phone');
             const f_score = document.getElementById('f_score');
             const f_attempts = document.getElementById('f_attempts');
+            const btnSaveEdit = document.getElementById('btnSaveEdit');
             let editModal;
 
             function openEdit(rowBtn) {
@@ -176,34 +183,71 @@ function wa_link(string $phone): string {
                 f_attempts.value = attempts;
 
                 if (!editModal) editModal = new bootstrap.Modal(editModalEl);
-                errBox.classList.add('d-none'); errBox.textContent = '';
+                errBox.classList.add('d-none');
+                errBox.textContent = '';
                 editModal.show();
             }
 
+            async function deletePlayer(id, fullName) {
+                if (!confirm(`Yakin ingin menghapus pemain "${fullName}"? Tindakan ini tidak dapat dibatalkan.`)) {
+                    return;
+                }
+
+                try {
+                    const res = await fetch('delete.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ id }).toString()
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal menghapus.');
+                    
+                    location.reload();
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                }
+            }
+
             document.addEventListener('click', (e) => {
-                const btn = e.target.closest('.btn-edit');
-                if (btn) { openEdit(btn); }
+                const editBtn = e.target.closest('.btn-edit');
+                if (editBtn) {
+                    openEdit(editBtn);
+                    return;
+                }
+                
+                const delBtn = e.target.closest('.btn-delete');
+                if (delBtn) {
+                    const id = delBtn.getAttribute('data-id');
+                    const fullName = delBtn.getAttribute('data-full_name') || '';
+                    deletePlayer(id, fullName);
+                    return;
+                }
             });
 
-            editForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                errBox.classList.add('d-none'); errBox.textContent = '';
+            // Handler untuk tombol Save Edit
+            btnSaveEdit.addEventListener('click', async () => {
+                errBox.classList.add('d-none');
+                errBox.textContent = '';
 
-                const fd = new FormData(editForm);
-                const id = fd.get('id');
-                const full_name = (fd.get('full_name') || '').toString().trim();
-                let phone = (fd.get('phone') || '').toString().trim();
-                const score = (fd.get('score') || '0').toString().trim();
-                const attempts = (fd.get('attempts') || '0').toString().trim();
+                const id = f_id.value;
+                const full_name = f_full_name.value.trim();
+                let phone = f_phone.value.trim();
+                const score = f_score.value.trim();
+                const attempts = f_attempts.value.trim();
 
                 if (full_name.length < 3) {
-                    errBox.textContent = 'Nama minimal 3 karakter.'; errBox.classList.remove('d-none'); return;
+                    errBox.textContent = 'Nama minimal 3 karakter.';
+                    errBox.classList.remove('d-none');
+                    return;
                 }
+                
                 phone = phone.replace(/[\s().-]/g, '');
                 if (phone.startsWith('+62')) phone = '0' + phone.slice(3);
                 if (phone.startsWith('62'))  phone = '0' + phone.slice(2);
                 if (!/^0\d{8,14}$/.test(phone)) {
-                    errBox.textContent = 'Nomor WhatsApp tidak valid.'; errBox.classList.remove('d-none'); return;
+                    errBox.textContent = 'Nomor WhatsApp tidak valid.';
+                    errBox.classList.remove('d-none');
+                    return;
                 }
 
                 try {
@@ -214,7 +258,6 @@ function wa_link(string $phone): string {
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal update.');
-                    // reload to reflect changes
                     location.reload();
                 } catch (err) {
                     errBox.textContent = err.message;
