@@ -189,6 +189,67 @@
             padding-left: 6px;
             border-radius: 6px;
         }
+        /* --- Splash Screen (rank, name, score) --- */
+        .splash {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #0b1020 0%, #1a1f3a 50%, #0b1020 100%);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            animation: fadeIn 0.5s ease-out;
+        }
+        .splash.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes glow {
+            0%, 100% { text-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent); }
+            50%      { text-shadow: 0 0 30px var(--accent), 0 0 60px var(--accent); }
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        .splash-content { text-align: center; animation: slideUp 0.8s ease-out 0.3s both; }
+        .splash-trophy { font-size: 80px; margin-bottom: 20px; animation: bounce 1s ease-in-out infinite; }
+        .splash-rank {
+            font-size: 120px;
+            font-weight: 900;
+            line-height: 1;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #5de4c7, #3b9aff, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: glow 2s ease-in-out infinite;
+        }
+        .splash-rank.gold {
+            background: linear-gradient(135deg, #ffd700, #ffed4e, #ffd700);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .splash-rank.silver {
+            background: linear-gradient(135deg, #c0c0c0, #e8e8e8, #c0c0c0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .splash-rank.bronze {
+            background: linear-gradient(135deg, #cd7f32, #e8a87c, #cd7f32);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .splash-label { font-size: 24px; color: var(--muted); margin-bottom: 30px; letter-spacing: 2px; text-transform: uppercase; }
+        .splash-name  { font-size: 48px; font-weight: 700; color: var(--fg); margin-bottom: 15px; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+        .splash-score { font-size: 72px; font-weight: 900; color: var(--accent); margin-bottom: 40px; text-shadow: 0 0 30px rgba(93, 228, 199, 0.5); }
+        .splash-message { font-size: 18px; color: var(--muted); margin-top: 30px; }
     </style>
 </head>
 
@@ -230,6 +291,17 @@
 
         <div class="help">Sundul bola dengan <strong>kepala</strong> (deteksi wajah). | Tips: berdiri 0.5–2 m dari
             kamera, cahaya cukup.</div>
+
+        <div class="splash" id="splash">
+            <div class="splash-content">
+                <div class="splash-trophy" id="splashTrophy">🏆</div>
+                <div class="splash-rank" id="splashRank">#1</div>
+                <div class="splash-label">Peringkat</div>
+                <div class="splash-name" id="splashName">Nama Pemain</div>
+                <div class="splash-score"><span id="splashScore">0</span> Poin</div>
+                <div class="splash-message">Selamat! Terima kasih sudah bermain 🎉</div>
+            </div>
+        </div>
 
         <video id="video" playsinline></video>
     </div>
@@ -296,6 +368,11 @@
                     }, 10000);
                 }
             }
+            const splash = document.getElementById('splash');
+            const splashRank = document.getElementById('splashRank');
+            const splashName = document.getElementById('splashName');
+            const splashScore = document.getElementById('splashScore');
+            const splashTrophy = document.getElementById('splashTrophy');
 
             // ===== Registration (Bootstrap modal) =====
             const regForm = document.getElementById('regForm');
@@ -690,37 +767,91 @@
                 }
             }
 
+            function showSplash(rank, name, score) {
+                if (!splash) return;
+                // reset classes
+                splashRank.classList.remove('gold','silver','bronze');
+                let trophy = '🏆';
+                if (rank === 1) { splashRank.classList.add('gold'); trophy = '🥇'; }
+                else if (rank === 2) { splashRank.classList.add('silver'); trophy = '🥈'; }
+                else if (rank === 3) { splashRank.classList.add('bronze'); trophy = '🥉'; }
+                splashTrophy.textContent = trophy;
+                splashRank.textContent = '#' + (rank || '?');
+                splashName.textContent = name || 'Pemain';
+                splashScore.textContent = String(score || 0);
+                splash.classList.add('active');
+                // auto-hide after 6s
+                setTimeout(() => splash.classList.remove('active'), 6000);
+            }
+
             async function endRound() {
                 if (!state.playing) return;
                 state.playing = false;
-                statusEl.textContent = '⏱️ Waktu habis! Menyimpan skor & logout...';
+                statusEl.textContent = '⏱️ Waktu habis! Menyimpan skor & menampilkan peringkat...';
+
                 const phoneJustFinished = (localStorage.getItem('player_phone') || '').trim();
+                const nameJustFinished  = (localStorage.getItem('player_name')  || 'Pemain').trim() || 'Pemain';
+                const finalScore = state.score | 0;
                 setHighlight(phoneJustFinished);
 
-                // 1) Simpan skor
+                // 1) Simpan skor ke server
                 await sendScore();
-                await loadLeaders();
 
-                // 2) Bersihkan objek game
+                // 2) Ambil leaderboard & hitung peringkat pemain saat ini
+                try {
+                    const res = await fetch('save.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ action: 'leaders' }).toString()
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    const players = Array.isArray(data.players)
+                        ? data.players.map(p => ({ ...p, score: Number(p.score || 0) }))
+                        : [];
+
+                    // Pastikan entri pemain ada (pakai skor terbaru)
+                    const idxExisting = players.findIndex(p => p.phone === phoneJustFinished);
+                    if (idxExisting >= 0) {
+                        players[idxExisting].score = Math.max(Number(players[idxExisting].score || 0), finalScore);
+                    } else {
+                        players.push({ phone: phoneJustFinished, full_name: nameJustFinished, score: finalScore });
+                    }
+
+                    // Urutkan desc berdasarkan skor dan cari peringkat
+                    players.sort((a, b) => b.score - a.score);
+                    const myIdx = players.findIndex(p => p.phone === phoneJustFinished);
+                    const myRank = myIdx >= 0 ? (myIdx + 1) : null;
+
+                    // Tampilkan Splash
+                    showSplash(myRank, nameJustFinished, finalScore);
+
+                    // Render ulang panel leaderboard
+                    renderLeaders(players);
+                } catch (e) {
+                    // Jika gagal ambil leaderboard, tetap tampilkan splash tanpa peringkat pasti
+                    showSplash(null, nameJustFinished, finalScore);
+                }
+
+                // 3) Bersihkan objek game
                 state.targets = [];
                 state.particles = [];
 
-                // 3) Hentikan kamera & loop
+                // 4) Hentikan kamera & loop
                 stopCamera();
                 state.running = false;
 
-                // 4) Logout pemain (hapus identitas lokal)
+                // 5) Logout pemain (hapus identitas lokal)
                 localStorage.removeItem('player_id');
                 localStorage.removeItem('player_name');
                 localStorage.removeItem('player_phone');
 
-                // 5) Reset HUD & lock Start
+                // 6) Reset HUD & lock Start
                 timeEl.textContent = '00:00';
                 scoreEl.textContent = '0';
                 accEl.textContent = '—';
                 startBtn.disabled = true;
 
-                // 6) Tampilkan modal registrasi untuk pemain berikutnya
+                // 7) Tampilkan modal registrasi untuk pemain berikutnya
                 statusEl.textContent = '👋 Pemain keluar. Silakan daftar pemain berikutnya.';
                 showReg();
             }
