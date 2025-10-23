@@ -50,6 +50,7 @@ function wa_link(string $phone): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Data Pemain</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         body { background:#0b1020; color:#e8f0ff; }
         .table thead th { color:#5de4c7; border-color:#334155; }
@@ -58,6 +59,16 @@ function wa_link(string $phone): string {
         .container-narrow { max-width: 960px; }
         a.wa { color:#93f; text-decoration:none; }
         a.wa:hover { text-decoration:underline; }
+        .btn-copy-phone {
+            background: transparent;
+            border: none;
+            color: #93f;
+            cursor: pointer;
+            padding: 0 0 0 8px;
+            transition: color 0.2s;
+        }
+        .btn-copy-phone:hover { color: #b5f; }
+        .btn-copy-phone.copied { color: #5de4c7; }
     </style>
 </head>
 <body>
@@ -92,6 +103,11 @@ function wa_link(string $phone): string {
                             <a class="wa" href="<?= h($plink) ?>" target="_blank" rel="noopener noreferrer">
                             <?= h($p['phone']) ?>
                             </a>
+                            <button type="button" class="btn-copy-phone" 
+                                    data-phone="<?= h($p['phone']) ?>"
+                                    title="Copy nomor">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
                         </td>
                         <td class="score"><?= (int)$p['score'] ?></td>
                         <td class="attempts"><?= (int)$p['attempts'] ?></td>
@@ -208,6 +224,23 @@ function wa_link(string $phone): string {
                 }
             }
 
+            function copyToClipboard(text, button) {
+                navigator.clipboard.writeText(text).then(() => {
+                    const icon = button.querySelector('i');
+                    const originalClass = icon.className;
+                    
+                    icon.className = 'bi bi-clipboard-check';
+                    button.classList.add('copied');
+                    
+                    setTimeout(() => {
+                        icon.className = originalClass;
+                        button.classList.remove('copied');
+                    }, 2000);
+                }).catch(err => {
+                    alert('Gagal menyalin: ' + err.message);
+                });
+            }
+
             document.addEventListener('click', (e) => {
                 const editBtn = e.target.closest('.btn-edit');
                 if (editBtn) {
@@ -220,6 +253,13 @@ function wa_link(string $phone): string {
                     const id = delBtn.getAttribute('data-id');
                     const fullName = delBtn.getAttribute('data-full_name') || '';
                     deletePlayer(id, fullName);
+                    return;
+                }
+
+                const copyBtn = e.target.closest('.btn-copy-phone');
+                if (copyBtn) {
+                    const phone = copyBtn.getAttribute('data-phone');
+                    copyToClipboard(phone, copyBtn);
                     return;
                 }
             });
